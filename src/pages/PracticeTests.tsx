@@ -1,40 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import styles from './Dashboard.module.css';
+import { supabase } from '../lib/supabase';
 
+// Types
 interface ParsedResumeData {
   name: string;
   email: string;
   phone: string;
-  location?: string;
-  summary?: string;
-  education: Array<{
-    degree: string;
-    field?: string;
-    institution: string;
-    year: string;
-    gpa?: string;
-  }>;
   skills: string[];
-  experience: Array<{
-    title: string;
-    company: string;
-    location?: string;
-    duration: string;
-    description: string;
-  }>;
-  projects: Array<{
-    title: string;
-    tech: string[];
-    description: string;
-    link?: string;
-  }>;
-  certifications?: string[];
-  languages?: string[];
-  links?: {
-    linkedin?: string;
-    github?: string;
-    portfolio?: string;
-  };
+  experience: any[];
+  projects: any[];
+  education: any[];
+}
+
+interface JobContext {
+  target_role: string;
+  experience_level: string;
+  interview_type: string;
 }
 
 interface InterviewQuestion {
@@ -43,156 +25,385 @@ interface InterviewQuestion {
   category: string;
   difficulty: string;
   focus_area: string;
+  expected_duration_seconds: number;
+  question_number?: number;
+  total_questions?: number;
 }
 
-const PracticeTests: React.FC = () => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [parsedData, setParsedData] = useState<ParsedResumeData | null>(null);
-  const [questions, setQuestions] = useState<InterviewQuestion[]>([]);
-  const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
-  const [error, setError] = useState<string>('');
-  const [isLoading, setIsLoading] = useState(false);
+interface SessionState {
+  session_id: string;
+  current_question: InterviewQuestion | null;
+  progress: { current: number; total: number };
+}
 
+interface Evaluation {
+  feedback: string;
+  score: number;
+  follow_up_question?: string;
+}
+
+interface ConversationMessage {
+  role: 'interviewer' | 'candidate';
+  message: string;
+  timestamp: Date;
+}
+
+type ViewMode = 'upload' | 'job-context' | 'interview' | 'summary';
+
+const PracticeTestsMain: React.FC = () => {
+  // State
+  const [viewMode, setViewMode] = useState<ViewMode>('upload');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [parsedData, setParsedData] = useState<ParsedResumeData | null>(null);
+  const [jobContext, setJobContext] = useState<JobContext>({
+    target_role: '',
+    experience_level: '',
+    interview_type: ''
+  });
+  const [session, setSession] = useState<SessionState | null>(null);
+  const [currentAnswer, setCurrentAnswer] = useState('');
+  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [allResponses, setAllResponses] = useState<any[]>([]);
+  const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
+  const [showingResponse, setShowingResponse] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  
+  // Ref for scrolling to bottom of conversation
+  const conversationEndRef = useRef<HTMLDivElement>(null);
+  
+  // Auto-scroll to latest message
+  useEffect(() => {
+    conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [conversationHistory]);
+
+  // Helper: Get auth token
+  const getAuthToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  };
+
+  // Handle Resume Upload & Parse
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      if (file.type !== 'application/pdf') {
-        setError('Please select a PDF file');
-        return;
-      }
-      if (file.size > 10 * 1024 * 1024) { // 10MB limit
-        setError('File size must be less than 10MB');
-        return;
-      }
+    if (file && file.type === 'application/pdf') {
       setSelectedFile(file);
       setError('');
-      setParsedData(null);
+    } else {
+      setError('Please select a valid PDF file');
     }
   };
 
   const handleParseResume = async () => {
-    if (!selectedFile) {
-      setError('Please select a PDF file first');
-      return;
-    }
+    if (!selectedFile) return;
 
     setIsLoading(true);
-    setError('');
-
     try {
+      const token = await getAuthToken();
       const formData = new FormData();
       formData.append('file', selectedFile);
 
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch('http://localhost:8000/api/resume/parse', {
         method: 'POST',
+        headers,
         body: formData,
       });
 
       const result = await response.json();
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to parse resume');
+      if (result.success) {
+        setParsedData(result.data);
+        setViewMode('job-context');
+        
+        // Log database save status
+        if (result.saved_to_database) {
+          console.log('✅ Resume saved to database with ID:', result.resume_id);
+        } else {
+          console.log('ℹ️ Resume parsed but not saved (no authentication)');
+        }
+      } else {
+        setError(result.error || 'Failed to parse resume');
       }
-
-      setParsedData(result.data);
-      
-      // Automatically generate questions after successful parsing
-      await generateQuestions(result.data);
-      
     } catch (err: any) {
-      console.error('Parse error:', err);
-      setError(err.message || 'Failed to parse resume. Please try again.');
+      setError('Failed to parse resume');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const generateQuestions = async (resumeData: ParsedResumeData) => {
-    setIsGeneratingQuestions(true);
+  // Start Interview Session
+  const handleStartInterview = async () => {
+    if (!parsedData || !jobContext.target_role || !jobContext.experience_level || !jobContext.interview_type) {
+      setError('Please fill all job context fields');
+      return;
+    }
+
+    setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/questions/generate', {
+      const response = await fetch('http://localhost:8000/api/session/create-conversational', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          resume_data: resumeData,
+          user_id: 'user123', // TODO: Get from auth context
+          resume_data: parsedData,
+          job_context: jobContext,
           num_questions: 10
         }),
       });
 
       const result = await response.json();
 
-      if (!response.ok || !result.success) {
-        throw new Error('Failed to generate questions');
+      if (result.success) {
+        const openingQuestion = result.opening_question || result.current_question;
+        setSession({
+          session_id: result.session_id,
+          current_question: openingQuestion,
+          progress: { current: 1, total: result.total_questions }
+        });
+        // Add opening question to conversation
+        setConversationHistory([{
+          role: 'interviewer',
+          message: openingQuestion.question,
+          timestamp: new Date()
+        }]);
+        setViewMode('interview');
+      } else {
+        setError('Failed to start interview session');
       }
-
-      setQuestions(result.questions);
-    } catch (err: any) {
-      console.error('Question generation error:', err);
-      setError('Resume parsed successfully, but failed to generate questions.');
+    } catch (err) {
+      setError('Failed to start interview');
     } finally {
-      setIsGeneratingQuestions(false);
+      setIsLoading(false);
     }
   };
 
-  const clearResults = () => {
-    setSelectedFile(null);
-    setParsedData(null);
-    setQuestions([]);
-    setError('');
+  // Submit Answer (Conversational Mode)
+  const handleSubmitAnswer = async () => {
+    if (!session || !currentAnswer.trim()) {
+      setError('Please provide an answer');
+      return;
+    }
+
+    // Add candidate's answer to conversation
+    setConversationHistory(prev => [...prev, {
+      role: 'candidate',
+      message: currentAnswer,
+      timestamp: new Date()
+    }]);
+
+    const candidateAnswer = currentAnswer;
+    setCurrentAnswer('');
+    setIsLoading(true);
+    setShowingResponse(true);
+
+    try {
+      const response = await fetch('http://localhost:8000/api/session/conversational-answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: session.session_id,
+          answer_text: candidateAnswer,
+          time_taken_seconds: 0
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Check if interview is complete
+        if (result.is_complete) {
+          // Add final acknowledgment
+          setConversationHistory(prev => [...prev, {
+            role: 'interviewer',
+            message: result.interviewer_response,
+            timestamp: new Date()
+          }]);
+          
+          // Save interview to database by calling summary endpoint
+          setTimeout(async () => {
+            try {
+              const token = await getAuthToken();
+              const headers: HeadersInit = { 'Content-Type': 'application/json' };
+              if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+              }
+              
+              const summaryResponse = await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, {
+                method: 'GET',
+                headers
+              });
+              
+              const summaryResult = await summaryResponse.json();
+              
+              if (summaryResult.saved_to_database) {
+                console.log('✅ Interview saved to database! Session ID:', summaryResult.db_session_id);
+              } else {
+                console.log('ℹ️ Interview completed but not saved (no authentication)');
+              }
+            } catch (err) {
+              console.error('Failed to save interview:', err);
+            }
+            
+            setViewMode('summary');
+          }, 2000);
+        } else {
+          // Combine acknowledgment and next question in single message
+          const nextQuestionText = result.next_question?.question || 'Next question coming up...';
+          const combinedMessage = `${result.interviewer_response}\n\n${nextQuestionText}`;
+          
+          setTimeout(() => {
+            setConversationHistory(prev => [...prev, {
+              role: 'interviewer',
+              message: combinedMessage,
+              timestamp: new Date()
+            }]);
+            
+            setSession({
+              ...session,
+              current_question: result.next_question,
+              progress: result.progress
+            });
+            setShowingResponse(false);
+          }, 1000);
+        }
+      }
+    } catch (err) {
+      setError('Failed to submit answer');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  // Skip Question
+  const handleSkipQuestion = async () => {
+    if (!session) return;
+
+    // Add skip note to conversation
+    setConversationHistory(prev => [...prev, {
+      role: 'candidate',
+      message: '[Question skipped]',
+      timestamp: new Date()
+    }]);
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('http://localhost:8000/api/session/skip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: session.session_id }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Check if interview completed
+        const nextQuestion = result.result?.next_question;
+        
+        if (!nextQuestion || result.result?.status === 'completed') {
+          // Save interview to database by calling summary endpoint
+          try {
+            const token = await getAuthToken();
+            const headers: HeadersInit = { 'Content-Type': 'application/json' };
+            if (token) {
+              headers['Authorization'] = `Bearer ${token}`;
+            }
+            
+            const summaryResponse = await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, {
+              method: 'GET',
+              headers
+            });
+            
+            const summaryResult = await summaryResponse.json();
+            
+            if (summaryResult.saved_to_database) {
+              console.log('✅ Interview saved to database! Session ID:', summaryResult.db_session_id);
+            } else {
+              console.log('ℹ️ Interview completed but not saved (no authentication)');
+            }
+          } catch (err) {
+            console.error('Failed to save interview:', err);
+          }
+          
+          setTimeout(() => setViewMode('summary'), 1000);
+        } else {
+          // Combine transition message and next question
+          const nextQuestionText = nextQuestion?.question || 'Next question coming up...';
+          const combinedMessage = `No problem. Let's move on to the next question.\n\n${nextQuestionText}`;
+          
+          setTimeout(() => {
+            setConversationHistory(prev => [...prev, {
+              role: 'interviewer',
+              message: combinedMessage,
+              timestamp: new Date()
+            }]);
+            
+            setSession({
+              ...session,
+              current_question: nextQuestion,
+              progress: {
+                current: nextQuestion.question_number || (session.progress.current + 1),
+                total: nextQuestion.total_questions || session.progress.total
+              }
+            });
+            setCurrentAnswer('');
+          }, 800);
+        }
+      }
+    } catch (err) {
+      setError('Failed to skip question');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Render based on view mode
   return (
-    <div className={styles.dashboardContent}>
+    <>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 0.3; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
+      
+      <div className={styles.dashboardContent}>
       <div className={styles.welcomeSection}>
-        <h1 className={styles.welcomeTitle}>AI Resume Parser</h1>
+        <h1 className={styles.welcomeTitle}>AI Interview Practice</h1>
         <p className={styles.welcomeSubtitle}>
-          Upload your resume in PDF format and let AI extract and analyze the information
+          {viewMode === 'upload' && 'Upload your resume to start'}
+          {viewMode === 'job-context' && 'Tell us about the role you\'re applying for'}
+          {viewMode === 'interview' && 'Have a natural conversation with the AI interviewer'}
+          {viewMode === 'summary' && 'Interview completed'}
         </p>
       </div>
 
-      {/* Upload Section */}
-      <div className={styles.section}>
-        <div className={styles.sectionHeader}>
-          <h3>Resume Parser</h3>
-          {(selectedFile || parsedData) && (
-            <button 
-              className={styles.viewAllBtn}
-              onClick={clearResults}
-              style={{ background: '#ef4444', color: 'white', padding: '0.5rem 1rem', borderRadius: '6px' }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        
-        <div style={{ padding: '1.5rem' }}>
-          {/* File Upload */}
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label 
-              htmlFor="resume-upload"
-              style={{
-                display: 'inline-block',
-                background: '#f8fafc',
-                border: '2px dashed #cbd5e1',
-                borderRadius: '8px',
-                padding: '2rem',
-                textAlign: 'center' as const,
-                cursor: 'pointer',
-                width: '100%',
-                boxSizing: 'border-box' as const,
-                transition: 'all 0.2s ease'
-              }}
-            >
+      {/* Upload View */}
+      {viewMode === 'upload' && (
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h3>📄 Upload Resume</h3>
+          </div>
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <label htmlFor="resume-upload" style={{
+              display: 'inline-block',
+              background: '#f8fafc',
+              border: '2px dashed #cbd5e1',
+              borderRadius: '12px',
+              padding: '3rem',
+              cursor: 'pointer',
+              width: '100%',
+              maxWidth: '500px'
+            }}>
               <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📄</div>
-              <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1e293b', marginBottom: '0.5rem' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                 {selectedFile ? selectedFile.name : 'Click to upload your resume'}
               </div>
-              <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
-                PDF files only, max 10MB
-              </div>
+              <div style={{ fontSize: '0.9rem', color: '#64748b' }}>PDF files only, max 10MB</div>
               <input
                 id="resume-upload"
                 type="file"
@@ -201,414 +412,434 @@ const PracticeTests: React.FC = () => {
                 style={{ display: 'none' }}
               />
             </label>
-          </div>
-
-          {/* Parse Button */}
-          {selectedFile && (
-            <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+            
+            {selectedFile && (
               <button
                 onClick={handleParseResume}
                 disabled={isLoading}
                 style={{
-                  background: isLoading ? '#94a3b8' : '#2563EB',
+                  marginTop: '2rem',
+                  background: '#2563EB',
                   color: 'white',
                   border: 'none',
                   borderRadius: '8px',
-                  padding: '0.75rem 2rem',
-                  fontSize: '1rem',
+                  padding: '1rem 3rem',
+                  fontSize: '1.1rem',
                   fontWeight: 600,
-                  cursor: isLoading ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s ease'
+                  cursor: isLoading ? 'not-allowed' : 'pointer'
                 }}
               >
-                {isLoading ? '🔄 Parsing Resume...' : isGeneratingQuestions ? '🤖 Generating Questions...' : '🤖 Parse Resume with AI'}
+                {isLoading ? '🔄 Parsing...' : '🤖 Parse Resume'}
               </button>
-            </div>
-          )}
-
-          {/* Error Display */}
-          {error && (
-            <div style={{
-              background: '#fef2f2',
-              border: '1px solid #fecaca',
-              borderRadius: '8px',
-              padding: '1rem',
-              marginBottom: '1.5rem'
-            }}>
-              <div style={{ color: '#dc2626', fontWeight: 600 }}>❌ Error</div>
-              <div style={{ color: '#991b1b', marginTop: '0.25rem' }}>{error}</div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Results Section */}
-      {parsedData && (
-        <div className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h3>Parsed Resume Data</h3>
-          </div>
-          
-          <div style={{ padding: '1.5rem' }}>
-            {/* Personal Information */}
-            <div style={{ marginBottom: '2rem' }}>
-              <h4 style={{ color: '#1e293b', marginBottom: '1rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>
-                👤 Personal Information
-              </h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem' }}>
-                <div>
-                  <strong>Name:</strong> {parsedData.name || 'N/A'}
-                </div>
-                <div>
-                  <strong>Email:</strong> {parsedData.email || 'N/A'}
-                </div>
-                <div>
-                  <strong>Phone:</strong> {parsedData.phone || 'N/A'}
-                </div>
-                {parsedData.location && (
-                  <div>
-                    <strong>Location:</strong> {parsedData.location}
-                  </div>
-                )}
-              </div>
-              {parsedData.summary && (
-                <div style={{ marginTop: '1rem', padding: '1rem', background: '#f0fdf4', borderRadius: '8px', borderLeft: '4px solid #22c55e' }}>
-                  <strong>Summary:</strong>
-                  <p style={{ margin: '0.5rem 0 0 0', color: '#475569' }}>{parsedData.summary}</p>
-                </div>
-              )}
-              {parsedData.links && (parsedData.links.linkedin || parsedData.links.github || parsedData.links.portfolio) && (
-                <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  {parsedData.links.linkedin && (
-                    <a href={parsedData.links.linkedin} target="_blank" rel="noopener noreferrer" 
-                       style={{ color: '#0077b5', textDecoration: 'none' }}>🔗 LinkedIn</a>
-                  )}
-                  {parsedData.links.github && (
-                    <a href={parsedData.links.github} target="_blank" rel="noopener noreferrer"
-                       style={{ color: '#333', textDecoration: 'none' }}>💻 GitHub</a>
-                  )}
-                  {parsedData.links.portfolio && (
-                    <a href={parsedData.links.portfolio} target="_blank" rel="noopener noreferrer"
-                       style={{ color: '#2563eb', textDecoration: 'none' }}>🌐 Portfolio</a>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Skills */}
-            {parsedData.skills && parsedData.skills.length > 0 && (
-              <div style={{ marginBottom: '2rem' }}>
-                <h4 style={{ color: '#1e293b', marginBottom: '1rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>
-                  🛠️ Skills
-                </h4>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  {parsedData.skills.map((skill, index) => (
-                    <span
-                      key={index}
-                      style={{
-                        background: '#eff6ff',
-                        color: '#2563EB',
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '1rem',
-                        fontSize: '0.875rem',
-                        border: '1px solid #dbeafe'
-                      }}
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
             )}
-
-            {/* Education */}
-            {parsedData.education && parsedData.education.length > 0 && (
-              <div style={{ marginBottom: '2rem' }}>
-                <h4 style={{ color: '#1e293b', marginBottom: '1rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>
-                  🎓 Education
-                </h4>
-                {parsedData.education.map((edu, index) => (
-                  <div key={index} style={{ marginBottom: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px' }}>
-                    <div style={{ fontWeight: 600, color: '#1e293b' }}>
-                      {edu.degree}{edu.field ? ` in ${edu.field}` : ''}
-                    </div>
-                    <div style={{ color: '#64748b' }}>{edu.institution}</div>
-                    <div style={{ display: 'flex', gap: '1rem', color: '#94a3b8', fontSize: '0.875rem' }}>
-                      <span>{edu.year}</span>
-                      {edu.gpa && <span>GPA: {edu.gpa}</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Experience */}
-            {parsedData.experience && parsedData.experience.length > 0 && (
-              <div style={{ marginBottom: '2rem' }}>
-                <h4 style={{ color: '#1e293b', marginBottom: '1rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>
-                  💼 Experience
-                </h4>
-                {parsedData.experience.map((exp, index) => (
-                  <div key={index} style={{ marginBottom: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px' }}>
-                    <div style={{ fontWeight: 600, color: '#1e293b' }}>{exp.title}</div>
-                    <div style={{ color: '#64748b' }}>
-                      {exp.company}{exp.location ? ` • ${exp.location}` : ''}
-                    </div>
-                    <div style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '0.5rem' }}>{exp.duration}</div>
-                    {exp.description && (
-                      <div style={{ color: '#475569', fontSize: '0.875rem', whiteSpace: 'pre-line' }}>{exp.description}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Projects */}
-            {parsedData.projects && parsedData.projects.length > 0 && (
-              <div style={{ marginBottom: '2rem' }}>
-                <h4 style={{ color: '#1e293b', marginBottom: '1rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>
-                  🚀 Projects
-                </h4>
-                {parsedData.projects.map((project, index) => (
-                  <div key={index} style={{ marginBottom: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px' }}>
-                    <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '0.5rem' }}>
-                      {project.title}
-                      {project.link && (
-                        <a href={project.link} target="_blank" rel="noopener noreferrer"
-                           style={{ marginLeft: '0.5rem', color: '#2563eb', fontSize: '0.875rem' }}>🔗</a>
-                      )}
-                    </div>
-                    {project.tech && project.tech.length > 0 && (
-                      <div style={{ marginBottom: '0.5rem' }}>
-                        {project.tech.map((tech, techIndex) => (
-                          <span
-                            key={techIndex}
-                            style={{
-                              background: '#f0fdf4',
-                              color: '#15803d',
-                              padding: '0.125rem 0.5rem',
-                              borderRadius: '0.75rem',
-                              fontSize: '0.75rem',
-                              marginRight: '0.25rem',
-                              border: '1px solid #d4f5da'
-                            }}
-                          >
-                            {tech}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {project.description && (
-                      <div style={{ color: '#475569', fontSize: '0.875rem' }}>{project.description}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Certifications */}
-            {parsedData.certifications && parsedData.certifications.length > 0 && (
-              <div style={{ marginBottom: '2rem' }}>
-                <h4 style={{ color: '#1e293b', marginBottom: '1rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>
-                  📜 Certifications
-                </h4>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  {parsedData.certifications.map((cert, index) => (
-                    <span
-                      key={index}
-                      style={{
-                        background: '#fef3c7',
-                        color: '#92400e',
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '1rem',
-                        fontSize: '0.875rem',
-                        border: '1px solid #fcd34d'
-                      }}
-                    >
-                      {cert}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Languages */}
-            {parsedData.languages && parsedData.languages.length > 0 && (
-              <div style={{ marginBottom: '2rem' }}>
-                <h4 style={{ color: '#1e293b', marginBottom: '1rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>
-                  🌍 Languages
-                </h4>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  {parsedData.languages.map((lang, index) => (
-                    <span
-                      key={index}
-                      style={{
-                        background: '#f3e8ff',
-                        color: '#7c3aed',
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '1rem',
-                        fontSize: '0.875rem',
-                        border: '1px solid #ddd6fe'
-                      }}
-                    >
-                      {lang}
-                    </span>
-                  ))}
-                </div>
+            
+            {error && (
+              <div style={{ marginTop: '1rem', color: '#dc2626', background: '#fef2f2', padding: '1rem', borderRadius: '8px' }}>
+                {error}
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Interview Questions Section */}
-      {questions.length > 0 && (
+      {/* Job Context View */}
+      {viewMode === 'job-context' && parsedData && (
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h3>🎯 Interview Questions</h3>
-            <span style={{ 
-              background: '#dbeafe', 
-              color: '#1e40af', 
-              padding: '0.25rem 0.75rem', 
-              borderRadius: '1rem', 
+            <h3>🎯 Interview Details</h3>
+          </div>
+          <div style={{ padding: '2rem' }}>
+            <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>
+                  Target Role *
+                </label>
+                <select
+                  value={jobContext.target_role}
+                  onChange={(e) => setJobContext({ ...jobContext, target_role: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    borderRadius: '8px',
+                    border: '2px solid #e2e8f0',
+                    fontSize: '1rem'
+                  }}
+                >
+                  <option value="">Select target role</option>
+                  <option value="Full Stack Developer">Full Stack Developer</option>
+                  <option value="Frontend Developer">Frontend Developer</option>
+                  <option value="Backend Developer">Backend Developer</option>
+                  <option value="Mobile App Developer">Mobile App Developer</option>
+                  <option value="DevOps Engineer">DevOps Engineer</option>
+                  <option value="Data Engineer">Data Engineer</option>
+                  <option value="Machine Learning Engineer">Machine Learning Engineer</option>
+                  <option value="QA Engineer">QA Engineer</option>
+                  <option value="UI/UX Designer">UI/UX Designer</option>
+                  <option value="Product Manager">Product Manager</option>
+                  <option value="Software Architect">Software Architect</option>
+                  <option value="Cloud Engineer">Cloud Engineer</option>
+                </select>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>
+                  Experience Level *
+                </label>
+                <select
+                  value={jobContext.experience_level}
+                  onChange={(e) => setJobContext({ ...jobContext, experience_level: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    borderRadius: '8px',
+                    border: '2px solid #e2e8f0',
+                    fontSize: '1rem'
+                  }}
+                >
+                  <option value="">Select experience level</option>
+                  <option value="Fresher">Fresher</option>
+                  <option value="1-3 years">1-3 years</option>
+                  <option value="3-5 years">3-5 years</option>
+                  <option value="5+ years">5+ years</option>
+                </select>
+              </div>
+
+              <div style={{ marginBottom: '2rem' }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>
+                  Interview Type *
+                </label>
+                <select
+                  value={jobContext.interview_type}
+                  onChange={(e) => setJobContext({ ...jobContext, interview_type: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    borderRadius: '8px',
+                    border: '2px solid #e2e8f0',
+                    fontSize: '1rem'
+                  }}
+                >
+                  <option value="">Select interview type</option>
+                  <option value="Technical">Technical</option>
+                  <option value="HR">HR/Behavioral</option>
+                  <option value="Mixed">Mixed (Technical + HR)</option>
+                </select>
+              </div>
+
+              <button
+                onClick={handleStartInterview}
+                disabled={isLoading || !jobContext.target_role || !jobContext.experience_level || !jobContext.interview_type}
+                style={{
+                  width: '100%',
+                  background: '#2563EB',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '1rem',
+                  fontSize: '1.1rem',
+                  fontWeight: 600,
+                  cursor: isLoading ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isLoading ? '🔄 Starting Interview...' : '🎤 Start Interview'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interview View - Conversational Mode */}
+      {viewMode === 'interview' && session && session.current_question && (
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h3>💬 Interview Session</h3>
+            <div style={{
+              background: '#dbeafe',
+              color: '#1e40af',
+              padding: '0.5rem 1rem',
+              borderRadius: '1rem',
               fontSize: '0.875rem',
               fontWeight: 600
             }}>
-              {questions.length} Questions
-            </span>
+              Question {session.progress.current} of {session.progress.total}
+            </div>
           </div>
           
           <div style={{ padding: '1.5rem' }}>
-            <div style={{ 
-              background: '#eff6ff', 
-              border: '1px solid #bfdbfe', 
-              borderRadius: '8px', 
-              padding: '1rem', 
-              marginBottom: '1.5rem' 
-            }}>
-              <div style={{ fontWeight: 600, color: '#1e40af', marginBottom: '0.25rem' }}>
-                💡 Personalized Questions
-              </div>
-              <div style={{ color: '#475569', fontSize: '0.875rem' }}>
-                These questions are tailored to your resume, focusing on your projects, skills, and experience.
+            {/* Progress Bar */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <div style={{ background: '#e2e8f0', height: '6px', borderRadius: '3px', overflow: 'hidden' }}>
+                <div style={{
+                  background: '#2563EB',
+                  height: '100%',
+                  width: `${(session.progress.current / session.progress.total) * 100}%`,
+                  transition: 'width 0.3s ease'
+                }} />
               </div>
             </div>
 
-            {questions.map((q, index) => (
-              <div 
-                key={q.id} 
-                style={{ 
-                  marginBottom: '1.5rem', 
-                  padding: '1.5rem', 
-                  background: index === 0 ? '#fef3c7' : index <= 2 ? '#dbeafe' : '#f8fafc',
-                  borderRadius: '8px',
-                  border: `2px solid ${index === 0 ? '#fcd34d' : index <= 2 ? '#93c5fd' : '#e2e8f0'}`
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-                  <div style={{ 
-                    background: index === 0 ? '#f59e0b' : index <= 2 ? '#3b82f6' : '#64748b',
-                    color: 'white',
-                    width: '32px',
-                    height: '32px',
+            {/* Conversation History */}
+            <div style={{
+              background: '#f8fafc',
+              borderRadius: '12px',
+              padding: '1.5rem',
+              marginBottom: '1.5rem',
+              maxHeight: '400px',
+              overflowY: 'auto',
+              border: '1px solid #e2e8f0'
+            }}>
+              {conversationHistory.map((msg, index) => (
+                <div
+                  key={index}
+                  style={{
+                    marginBottom: '1rem',
+                    display: 'flex',
+                    flexDirection: msg.role === 'interviewer' ? 'row' : 'row-reverse',
+                    gap: '0.75rem',
+                    alignItems: 'flex-start'
+                  }}
+                >
+                  {/* Avatar */}
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
                     borderRadius: '50%',
+                    background: msg.role === 'interviewer' ? '#2563EB' : '#10b981',
+                    color: 'white',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontWeight: 700,
-                    fontSize: '0.875rem',
+                    fontSize: '1.25rem',
                     flexShrink: 0
                   }}>
-                    {q.id}
+                    {msg.role === 'interviewer' ? '👔' : '👤'}
                   </div>
                   
-                  <div style={{ flex: 1 }}>
-                    <div style={{ 
-                      fontSize: '1rem', 
-                      fontWeight: 500, 
-                      color: '#1e293b', 
-                      marginBottom: '0.75rem',
-                      lineHeight: 1.6
+                  {/* Message Bubble */}
+                  <div style={{
+                    background: msg.role === 'interviewer' ? '#ffffff' : '#e0f2fe',
+                    border: msg.role === 'interviewer' ? '2px solid #e2e8f0' : '2px solid #93c5fd',
+                    borderRadius: '16px',
+                    padding: '1rem 1.25rem',
+                    maxWidth: '75%',
+                    wordWrap: 'break-word'
+                  }}>
+                    <div style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      color: msg.role === 'interviewer' ? '#2563EB' : '#0c4a6e',
+                      marginBottom: '0.5rem'
                     }}>
-                      {q.question}
+                      {msg.role === 'interviewer' ? 'Interviewer' : 'You'}
                     </div>
-                    
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <span style={{
-                        background: index === 0 ? '#fef3c7' : index <= 2 ? '#eff6ff' : '#f1f5f9',
-                        color: '#475569',
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '1rem',
-                        fontSize: '0.75rem',
-                        border: '1px solid #cbd5e1',
-                        textTransform: 'capitalize'
-                      }}>
-                        📂 {q.category}
-                      </span>
-                      
-                      <span style={{
-                        background: q.difficulty === 'easy' ? '#dcfce7' : q.difficulty === 'medium' ? '#fef3c7' : '#fecaca',
-                        color: q.difficulty === 'easy' ? '#166534' : q.difficulty === 'medium' ? '#92400e' : '#991b1b',
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '1rem',
-                        fontSize: '0.75rem',
-                        border: `1px solid ${q.difficulty === 'easy' ? '#bbf7d0' : q.difficulty === 'medium' ? '#fcd34d' : '#fca5a5'}`,
-                        textTransform: 'capitalize'
-                      }}>
-                        {q.difficulty === 'easy' ? '🟢' : q.difficulty === 'medium' ? '🟡' : '🔴'} {q.difficulty}
-                      </span>
-                      
-                      {q.focus_area && (
-                        <span style={{
-                          background: '#f0fdf4',
-                          color: '#15803d',
-                          padding: '0.25rem 0.75rem',
-                          borderRadius: '1rem',
-                          fontSize: '0.75rem',
-                          border: '1px solid #d4f5da'
-                        }}>
-                          🎯 {q.focus_area}
-                        </span>
-                      )}
+                    <div style={{
+                      fontSize: '1rem',
+                      color: '#1e293b',
+                      lineHeight: '1.6',
+                      whiteSpace: 'pre-wrap'
+                    }}>
+                      {msg.message}
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-
-            <div style={{ 
-              marginTop: '1.5rem', 
-              padding: '1rem', 
-              background: '#f0fdf4', 
-              borderRadius: '8px', 
-              border: '1px solid #bbf7d0',
-              textAlign: 'center'
-            }}>
-              <div style={{ color: '#15803d', fontWeight: 600, marginBottom: '0.5rem' }}>
-                ✅ Ready to Practice?
-              </div>
-              <div style={{ color: '#475569', fontSize: '0.875rem' }}>
-                Use these questions to prepare for your interview. Practice answering them out loud!
-              </div>
+              ))}
+              
+              {/* Typing Indicator */}
+              {isLoading && (
+                <div style={{
+                  display: 'flex',
+                  gap: '0.75rem',
+                  alignItems: 'flex-start',
+                  marginTop: '1rem'
+                }}>
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '50%',
+                    background: '#2563EB',
+                    color: 'white',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1.25rem'
+                  }}>
+                    👔
+                  </div>
+                  <div style={{
+                    background: '#ffffff',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '16px',
+                    padding: '1rem 1.25rem',
+                    display: 'flex',
+                    gap: '0.5rem',
+                    alignItems: 'center'
+                  }}>
+                    <span style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: '#94a3b8',
+                      animation: 'pulse 1.5s ease-in-out infinite'
+                    }} />
+                    <span style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: '#94a3b8',
+                      animation: 'pulse 1.5s ease-in-out 0.2s infinite'
+                    }} />
+                    <span style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: '#94a3b8',
+                      animation: 'pulse 1.5s ease-in-out 0.4s infinite'
+                    }} />
+                  </div>
+                </div>
+              )}
+              
+              {/* Scroll target */}
+              <div ref={conversationEndRef} />
             </div>
+
+            {/* Answer Input */}
+            {!showingResponse && (
+              <>
+                <textarea
+                  value={currentAnswer}
+                  onChange={(e) => setCurrentAnswer(e.target.value)}
+                  placeholder="Type your answer here..."
+                  style={{
+                    width: '100%',
+                    minHeight: '150px',
+                    padding: '1rem',
+                    borderRadius: '12px',
+                    border: '2px solid #e2e8f0',
+                    fontSize: '1rem',
+                    fontFamily: 'inherit',
+                    marginBottom: '1rem',
+                    resize: 'vertical',
+                    outline: 'none'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#2563EB'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                />
+
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <button
+                    onClick={handleSubmitAnswer}
+                    disabled={isLoading || !currentAnswer.trim()}
+                    style={{
+                      flex: 1,
+                      background: isLoading || !currentAnswer.trim() ? '#94a3b8' : '#2563EB',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '1rem',
+                      fontSize: '1rem',
+                      fontWeight: 600,
+                      cursor: isLoading || !currentAnswer.trim() ? 'not-allowed' : 'pointer',
+                      transition: 'background 0.2s'
+                    }}
+                  >
+                    {isLoading ? '💬 Sending...' : '📤 Send Answer'}
+                  </button>
+
+                  <button
+                    onClick={handleSkipQuestion}
+                    disabled={isLoading}
+                    style={{
+                      background: 'transparent',
+                      color: '#64748b',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      padding: '1rem 1.5rem',
+                      fontSize: '0.875rem',
+                      fontWeight: 600,
+                      cursor: isLoading ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#94a3b8';
+                      e.currentTarget.style.color = '#475569';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                      e.currentTarget.style.color = '#64748b';
+                    }}
+                  >
+                    ⏭️ Skip
+                  </button>
+                </div>
+                
+                <div style={{
+                  marginTop: '0.75rem',
+                  fontSize: '0.875rem',
+                  color: '#64748b',
+                  textAlign: 'center'
+                }}>
+                  💡 Take your time and provide detailed answers for better conversation
+                </div>
+              </>
+            )}
+            
+            {/* Waiting for next question */}
+            {showingResponse && !isLoading && (
+              <div style={{
+                textAlign: 'center',
+                padding: '2rem',
+                color: '#64748b',
+                fontSize: '0.875rem'
+              }}>
+                Preparing next question...
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Empty State */}
-      {!selectedFile && !parsedData && !error && (
+      {/* Summary View */}
+      {viewMode === 'summary' && (
         <div className={styles.section}>
-          <div className={styles.activityList}>
-            <div className={styles.emptyState}>
-              <div className={styles.emptyIcon}>🤖</div>
-              <p className={styles.emptyText}>AI Resume Parser Ready</p>
-              <p className={styles.emptySubtext}>Upload a PDF resume to extract and analyze information using AI</p>
-            </div>
+          <div className={styles.sectionHeader}>
+            <h3>🎉 Interview Complete!</h3>
+          </div>
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎯</div>
+            <h2 style={{ marginBottom: '0.5rem' }}>Great job completing the interview!</h2>
+            <p style={{ color: '#64748b' }}>Review your detailed analysis in the summary section</p>
+            
+            <button
+              onClick={() => {
+                setViewMode('upload');
+                setSession(null);
+                setParsedData(null);
+                setSelectedFile(null);
+                setAllResponses([]);
+                setConversationHistory([]);
+                setShowingResponse(false);
+              }}
+              style={{
+                marginTop: '2rem',
+                background: '#2563EB',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '1rem 2rem',
+                fontSize: '1rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Start New Interview
+            </button>
           </div>
         </div>
       )}
     </div>
+    </>
   );
 };
 
-export default PracticeTests;
+export default PracticeTestsMain;
