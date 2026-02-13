@@ -55,28 +55,81 @@ export const authService = {
       }
     });
 
-    // If user creation successful and resume provided, upload resume
-    if (!error && data.user && userData.resume) {
+    // If user creation successful, create user profile and upload resume
+    if (!error && data.user) {
       try {
-        const resumeUrl = await this.uploadResume(userData.resume, data.user.id);
+        // Get session token for API calls
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
         
-        // Update user metadata with resume URL
-        const { error: updateError } = await supabase.auth.updateUser({
-          data: {
-            full_name: userData.fullName,
-            phone: userData.phone,
-            date_of_birth: userData.dateOfBirth,
-            experience_level: userData.experience,
-            resume_url: resumeUrl,
+        // Create user profile in database
+        if (token) {
+          const profileResponse = await fetch('http://localhost:8000/api/db/profile', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              full_name: userData.fullName,
+              email: email,
+              phone: userData.phone,
+              experience_level: userData.experience
+            })
+          });
+          
+          if (profileResponse.ok) {
+            console.log('✅ User profile created in database');
+          } else {
+            console.error('Failed to create user profile:', await profileResponse.text());
           }
-        });
+        }
 
-        if (updateError) {
-          console.error('Error updating user with resume URL:', updateError);
+        // Upload resume if provided
+        if (userData.resume) {
+          const resumeUrl = await this.uploadResume(userData.resume, data.user.id);
+          
+          // Save resume record to database
+          if (token) {
+            const resumeResponse = await fetch('http://localhost:8000/api/db/resume', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                file_name: userData.resume.name,
+                file_url: resumeUrl,
+                file_size: userData.resume.size,
+                parsed_data: {} // Will be parsed later
+              })
+            });
+            
+            if (resumeResponse.ok) {
+              console.log('✅ Resume saved to database');
+            } else {
+              console.error('Failed to save resume to database:', await resumeResponse.text());
+            }
+          }
+
+          // Update user metadata with resume URL
+          const { error: updateError } = await supabase.auth.updateUser({
+            data: {
+              full_name: userData.fullName,
+              phone: userData.phone,
+              date_of_birth: userData.dateOfBirth,
+              experience_level: userData.experience,
+              resume_url: resumeUrl,
+            }
+          });
+
+          if (updateError) {
+            console.error('Error updating user with resume URL:', updateError);
+          }
         }
       } catch (resumeError) {
-        console.error('Error uploading resume:', resumeError);
-        // Don't fail the signup if resume upload fails
+        console.error('Error during registration:', resumeError);
+        // Don't fail the signup if additional steps fail
       }
     }
 
