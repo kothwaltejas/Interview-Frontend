@@ -104,8 +104,6 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);  // Timer for 3-2-1 countdown
   const isAutoSkippingRef = useRef(false);  // Prevent race conditions during auto-skip
   const currentQuestionIdRef = useRef<number | null>(null);  // Track current question to detect changes
-  const isCountdownActiveRef = useRef(false);  // Prevent countdown from restarting while active
-  const isManuallySkippingRef = useRef(false);  // Prevent STT processing during manual skip
 
   // ============ HOOKS ============
   
@@ -220,10 +218,8 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         console.log('📝 Question changed:', currentQuestionIdRef.current, '→', newQuestionId);
         currentQuestionIdRef.current = newQuestionId;
         
-        // Reset ALL skip-related flags for new question
+        // Reset all silence-related state for new question
         isAutoSkippingRef.current = false;
-        isManuallySkippingRef.current = false;
-        isCountdownActiveRef.current = false;
         hasUserSpokenThisRecording.current = false;
         recordingStartTimeRef.current = null;
         
@@ -355,7 +351,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
   const COUNTDOWN_SECONDS = 3;  // 3-2-1 countdown before skip
   
   /**
-   * Clear all silence-related timers and reset countdown state
+   * Clear all silence-related timers
    */
   const clearSilenceTimers = useCallback(() => {
     if (silenceTimerRef.current) {
@@ -366,8 +362,6 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
       clearInterval(countdownTimerRef.current);
       countdownTimerRef.current = null;
     }
-    // Reset countdown active flag
-    isCountdownActiveRef.current = false;
     setSilenceCountdown(null);
     setShowSkipWarning(false);
   }, []);
@@ -413,17 +407,9 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   /**
    * Start the 3-2-1 countdown before auto-skip
-   * Uses ref to prevent multiple countdowns from starting
    */
   const startSkipCountdown = useCallback(() => {
-    // CRITICAL: Prevent countdown from restarting if already active
-    if (isCountdownActiveRef.current) {
-      console.log('⚠️ Countdown already active, ignoring duplicate start');
-      return;
-    }
-    
     console.log('⚠️ Starting skip countdown');
-    isCountdownActiveRef.current = true;  // Mark countdown as active
     setShowSkipWarning(true);
     setSilenceCountdown(COUNTDOWN_SECONDS);
     
@@ -436,7 +422,6 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         // Countdown finished - auto skip
         clearInterval(countdownTimerRef.current!);
         countdownTimerRef.current = null;
-        isCountdownActiveRef.current = false;
         handleAutoSkip();
       } else {
         setSilenceCountdown(count);
@@ -511,12 +496,11 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   /**
    * Handle completed recording - send to STT backend
-   * Checks multiple flags to avoid processing during skip/transition states
    */
   const handleRecordingComplete = async (audioBlob: Blob) => {
-    // CRITICAL: Check if we're skipping (auto or manual) - don't process recording
-    if (isAutoSkippingRef.current || isManuallySkippingRef.current) {
-      console.log('⏭️ Recording completed during skip, ignoring (auto:', isAutoSkippingRef.current, 'manual:', isManuallySkippingRef.current, ')');
+    // CRITICAL: Check if we're auto-skipping - don't process recording
+    if (isAutoSkippingRef.current) {
+      console.log('⏭️ Recording completed during auto-skip, ignoring');
       return;
     }
     
@@ -524,13 +508,10 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     setError(null);
     
     try {
-      // Validate blob - be more lenient (reduced from 1000 to 500)
-      if (!audioBlob || audioBlob.size < 500) {
+      // Validate blob
+      if (!audioBlob || audioBlob.size < 1000) {
         console.warn('Audio blob too small:', audioBlob?.size);
-        // Don't show error for small blobs during skipping - just restart
-        if (!isAutoSkippingRef.current && !isManuallySkippingRef.current) {
-          setError('Recording too short. Please speak clearly and try again.');
-        }
+        setError('Recording too short. Please speak clearly and try again.');
         setPhase('IDLE');
         setTimeout(startListening, 1500);
         return;
@@ -592,21 +573,15 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   /**
    * Handle skip button - uses existing skip logic
-   * Sets flags to prevent STT error messages during skip
    */
   const handleSkip = async () => {
-    // CRITICAL: Set flags to prevent recording callback from processing
-    isManuallySkippingRef.current = true;
-    isAutoSkippingRef.current = true;  // Also prevent auto-skip race conditions
-    
-    // Clear all timers and stop processes
-    clearSilenceTimers();
+    // Stop any ongoing processes
     recorder.stopRecording();
     tts.stop();
     
     // Reset state
     setTranscript('');
-    setError(null);  // Clear any existing errors
+    setError(null);
     hasSpokenCurrentQuestion.current = false;
     
     setPhase('PROCESSING_ANSWER');
@@ -614,8 +589,6 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
       await onSkip();
     } finally {
       setPhase('IDLE');
-      // Reset skip flags after processing (will also be reset on question change)
-      isManuallySkippingRef.current = false;
     }
   };
 
