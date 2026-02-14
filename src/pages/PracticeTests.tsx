@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import styles from './Dashboard.module.css';
 import { supabase } from '../lib/supabase';
+import VoiceInterview from '../components/VoiceInterview';
 
 // Types
 interface ParsedResumeData {
@@ -48,7 +49,24 @@ interface ConversationMessage {
   timestamp: Date;
 }
 
+/**
+ * Interface for storing interview answers for feedback analysis.
+ * Each answer includes the question, response, and metadata for later evaluation.
+ */
+interface InterviewAnswer {
+  questionId: number;
+  questionNumber: number;
+  questionText: string;
+  category: string;
+  difficulty: string;
+  answerText: string;
+  isSkipped: boolean;
+  timestamp: Date;
+  timeTakenSeconds?: number;
+}
+
 type ViewMode = 'upload' | 'job-context' | 'interview' | 'summary';
+type InterviewMode = 'text' | 'voice';  // New: Interview mode type
 
 const PracticeTestsMain: React.FC = () => {
   // State
@@ -62,12 +80,21 @@ const PracticeTestsMain: React.FC = () => {
   });
   const [session, setSession] = useState<SessionState | null>(null);
   const [currentAnswer, setCurrentAnswer] = useState('');
-  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
-  const [allResponses, setAllResponses] = useState<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_evaluation, _setEvaluation] = useState<Evaluation | null>(null);
+  
+  // Store all interview answers for feedback analysis
+  const [interviewAnswers, setInterviewAnswers] = useState<InterviewAnswer[]>([]);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [showingResponse, setShowingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // New: Voice mode state
+  const [interviewMode, setInterviewMode] = useState<InterviewMode>('text');
+  const [sttAvailable, setSttAvailable] = useState<boolean | null>(null); // null = checking
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_authToken, setAuthToken] = useState<string | null>(null);
   
   // Ref for scrolling to bottom of conversation
   const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -77,10 +104,206 @@ const PracticeTestsMain: React.FC = () => {
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversationHistory]);
 
-  // Helper: Get auth token
+  // Log collected answers when interview completes (for feedback analysis)
+  useEffect(() => {
+    if (viewMode === 'summary' && interviewAnswers.length > 0) {
+      console.log('📊 Interview completed - Answers collected for feedback analysis:');
+      console.log('Total answers:', interviewAnswers.length);
+      console.log('Answered:', interviewAnswers.filter(a => !a.isSkipped).length);
+      console.log('Skipped:', interviewAnswers.filter(a => a.isSkipped).length);
+      console.log('Answers data:', interviewAnswers);
+    }
+  }, [viewMode, interviewAnswers]);
+
+  // New: Check if STT service is available on backend
+  useEffect(() => {
+    const checkSTTAvailability = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/audio/stt/status');
+        const result = await response.json();
+        setSttAvailable(result.available);
+        console.log('STT availability:', result.available ? '✅ Available' : '❌ Not available');
+      } catch (err) {
+        console.log('STT service check failed - voice mode disabled');
+        setSttAvailable(false);
+      }
+    };
+    
+    checkSTTAvailability();
+  }, []);
+
+  // Helper: Get auth token (also updates state for voice mode)
   const getAuthToken = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || null;
+    const token = session?.access_token || null;
+    setAuthToken(token);
+    return token;
+  };
+
+  /**
+   * Record an answer for feedback analysis.
+   * Called when user submits or skips a question.
+   */
+  const recordAnswer = (answerText: string, isSkipped: boolean = false) => {
+    if (!session?.current_question) return;
+    
+    const question = session.current_question;
+    const answer: InterviewAnswer = {
+      questionId: question.id,
+      questionNumber: session.progress.current,
+      questionText: question.question,
+      category: question.category,
+      difficulty: question.difficulty,
+      answerText: answerText,
+      isSkipped: isSkipped,
+      timestamp: new Date(),
+    };
+    
+    setInterviewAnswers(prev => [...prev, answer]);
+    console.log('📝 Answer recorded for feedback:', {
+      questionNumber: answer.questionNumber,
+      category: answer.category,
+      isSkipped: answer.isSkipped,
+      answerLength: answer.answerText.length
+    });
+  };
+
+  // Voice mode: Handle answer submit (reuses existing logic)
+  const handleVoiceAnswerSubmit = async (answerText: string) => {
+    if (!session) return;
+    
+    // Record answer for feedback analysis BEFORE submitting
+    // This ensures we save even if submission fails
+    recordAnswer(answerText, false);
+    
+    // Add candidate's answer to conversation
+    setConversationHistory(prev => [...prev, {
+      role: 'candidate',
+      message: answerText,
+      timestamp: new Date()
+    }]);
+    
+    await handleAnswerSubmission(answerText);
+  };
+
+  // Voice mode: Handle skip (reuses existing logic)
+  const handleVoiceSkip = async () => {
+    // Record skipped question for feedback analysis
+    recordAnswer('', true);
+    await handleSkipQuestion();
+  };
+
+  // Voice mode: End interview early
+  const handleEndInterviewEarly = async () => {
+    if (!session) return;
+    
+    try {
+      const token = await getAuthToken();
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const summaryResponse = await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, {
+        method: 'GET',
+        headers
+      });
+      
+      const summaryResult = await summaryResponse.json();
+      
+      if (summaryResult.saved_to_database) {
+        console.log('✅ Interview saved to database! Session ID:', summaryResult.db_session_id);
+      }
+    } catch (err) {
+      console.error('Failed to save interview:', err);
+    }
+    
+    setViewMode('summary');
+  };
+
+  // Shared answer submission logic (used by both text and voice modes)
+  const handleAnswerSubmission = async (answerText: string) => {
+    if (!session) return;
+
+    setIsLoading(true);
+    setShowingResponse(true);
+
+    try {
+      const response = await fetch('http://localhost:8000/api/session/conversational-answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: session.session_id,
+          answer_text: answerText,
+          time_taken_seconds: 0
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Check if interview is complete
+        if (result.is_complete) {
+          // Add final acknowledgment
+          setConversationHistory(prev => [...prev, {
+            role: 'interviewer',
+            message: result.interviewer_response,
+            timestamp: new Date()
+          }]);
+          
+          // Save interview to database by calling summary endpoint
+          setTimeout(async () => {
+            try {
+              const token = await getAuthToken();
+              const headers: HeadersInit = { 'Content-Type': 'application/json' };
+              if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+              }
+              
+              const summaryResponse = await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, {
+                method: 'GET',
+                headers
+              });
+              
+              const summaryResult = await summaryResponse.json();
+              
+              if (summaryResult.saved_to_database) {
+                console.log('✅ Interview saved to database! Session ID:', summaryResult.db_session_id);
+              } else {
+                console.log('ℹ️ Interview completed but not saved (no authentication)');
+              }
+            } catch (err) {
+              console.error('Failed to save interview:', err);
+            }
+            
+            setViewMode('summary');
+          }, 2000);
+        } else {
+          // Combine acknowledgment and next question in single message
+          const nextQuestionText = result.next_question?.question || 'Next question coming up...';
+          const combinedMessage = `${result.interviewer_response}\n\n${nextQuestionText}`;
+          
+          setTimeout(() => {
+            setConversationHistory(prev => [...prev, {
+              role: 'interviewer',
+              message: combinedMessage,
+              timestamp: new Date()
+            }]);
+            
+            setSession({
+              ...session,
+              current_question: result.next_question,
+              progress: result.progress
+            });
+            setShowingResponse(false);
+          }, 1000);
+        }
+      }
+    } catch (err) {
+      setError('Failed to submit answer');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Handle Resume Upload & Parse
@@ -165,6 +388,8 @@ const PracticeTestsMain: React.FC = () => {
           current_question: openingQuestion,
           progress: { current: 1, total: result.total_questions }
         });
+        // Reset interview answers for new session
+        setInterviewAnswers([]);
         // Add opening question to conversation
         setConversationHistory([{
           role: 'interviewer',
@@ -182,12 +407,15 @@ const PracticeTestsMain: React.FC = () => {
     }
   };
 
-  // Submit Answer (Conversational Mode)
+  // Submit Answer (Conversational Mode) - Text input version
   const handleSubmitAnswer = async () => {
     if (!session || !currentAnswer.trim()) {
       setError('Please provide an answer');
       return;
     }
+
+    // Record answer for feedback analysis BEFORE submitting
+    recordAnswer(currentAnswer.trim(), false);
 
     // Add candidate's answer to conversation
     setConversationHistory(prev => [...prev, {
@@ -198,90 +426,17 @@ const PracticeTestsMain: React.FC = () => {
 
     const candidateAnswer = currentAnswer;
     setCurrentAnswer('');
-    setIsLoading(true);
-    setShowingResponse(true);
-
-    try {
-      const response = await fetch('http://localhost:8000/api/session/conversational-answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: session.session_id,
-          answer_text: candidateAnswer,
-          time_taken_seconds: 0
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        // Check if interview is complete
-        if (result.is_complete) {
-          // Add final acknowledgment
-          setConversationHistory(prev => [...prev, {
-            role: 'interviewer',
-            message: result.interviewer_response,
-            timestamp: new Date()
-          }]);
-          
-          // Save interview to database by calling summary endpoint
-          setTimeout(async () => {
-            try {
-              const token = await getAuthToken();
-              const headers: HeadersInit = { 'Content-Type': 'application/json' };
-              if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-              }
-              
-              const summaryResponse = await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, {
-                method: 'GET',
-                headers
-              });
-              
-              const summaryResult = await summaryResponse.json();
-              
-              if (summaryResult.saved_to_database) {
-                console.log('✅ Interview saved to database! Session ID:', summaryResult.db_session_id);
-              } else {
-                console.log('ℹ️ Interview completed but not saved (no authentication)');
-              }
-            } catch (err) {
-              console.error('Failed to save interview:', err);
-            }
-            
-            setViewMode('summary');
-          }, 2000);
-        } else {
-          // Combine acknowledgment and next question in single message
-          const nextQuestionText = result.next_question?.question || 'Next question coming up...';
-          const combinedMessage = `${result.interviewer_response}\n\n${nextQuestionText}`;
-          
-          setTimeout(() => {
-            setConversationHistory(prev => [...prev, {
-              role: 'interviewer',
-              message: combinedMessage,
-              timestamp: new Date()
-            }]);
-            
-            setSession({
-              ...session,
-              current_question: result.next_question,
-              progress: result.progress
-            });
-            setShowingResponse(false);
-          }, 1000);
-        }
-      }
-    } catch (err) {
-      setError('Failed to submit answer');
-    } finally {
-      setIsLoading(false);
-    }
+    
+    // Use shared submission logic
+    await handleAnswerSubmission(candidateAnswer);
   };
 
   // Skip Question
   const handleSkipQuestion = async () => {
     if (!session) return;
+
+    // Record skipped question for feedback analysis
+    recordAnswer('', true);
 
     // Add skip note to conversation
     setConversationHistory(prev => [...prev, {
@@ -526,6 +681,93 @@ const PracticeTestsMain: React.FC = () => {
                 </select>
               </div>
 
+              {/* Interview Mode Selection - NEW */}
+              <div style={{ marginBottom: '2rem' }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.75rem' }}>
+                  Interview Mode
+                </label>
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                  {/* Text Mode */}
+                  <button
+                    type="button"
+                    onClick={() => setInterviewMode('text')}
+                    style={{
+                      flex: 1,
+                      padding: '1rem',
+                      borderRadius: '12px',
+                      border: interviewMode === 'text' 
+                        ? '3px solid #2563EB' 
+                        : '2px solid #e2e8f0',
+                      background: interviewMode === 'text' 
+                        ? '#eff6ff' 
+                        : '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⌨️</div>
+                    <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Text Mode</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      Type your answers
+                    </div>
+                  </button>
+
+                  {/* Voice Mode */}
+                  <button
+                    type="button"
+                    onClick={() => sttAvailable && setInterviewMode('voice')}
+                    disabled={!sttAvailable}
+                    style={{
+                      flex: 1,
+                      padding: '1rem',
+                      borderRadius: '12px',
+                      border: interviewMode === 'voice' 
+                        ? '3px solid #2563EB' 
+                        : '2px solid #e2e8f0',
+                      background: interviewMode === 'voice' 
+                        ? '#eff6ff' 
+                        : sttAvailable ? '#ffffff' : '#f3f4f6',
+                      cursor: sttAvailable ? 'pointer' : 'not-allowed',
+                      opacity: sttAvailable ? 1 : 0.6,
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🎤</div>
+                    <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
+                      Voice Mode {!sttAvailable && '(Unavailable)'}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      {sttAvailable 
+                        ? 'Speak naturally like real interview' 
+                        : sttAvailable === null 
+                          ? 'Checking...' 
+                          : 'Requires backend STT setup'}
+                    </div>
+                  </button>
+                </div>
+                
+                {/* Voice mode info */}
+                {interviewMode === 'voice' && sttAvailable && (
+                  <div style={{
+                    marginTop: '1rem',
+                    padding: '1rem',
+                    background: '#f0f9ff',
+                    border: '1px solid #bae6fd',
+                    borderRadius: '8px',
+                    fontSize: '0.875rem',
+                    color: '#0c4a6e',
+                  }}>
+                    <strong>🎥 Voice Mode Features:</strong>
+                    <ul style={{ margin: '0.5rem 0 0 1rem', paddingLeft: '0' }}>
+                      <li>Camera & microphone will be enabled</li>
+                      <li>AI interviewer speaks questions aloud</li>
+                      <li>Your verbal answers are transcribed</li>
+                      <li>Automatic silence detection ends recording</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={handleStartInterview}
                 disabled={isLoading || !jobContext.target_role || !jobContext.experience_level || !jobContext.interview_type}
@@ -541,7 +783,7 @@ const PracticeTestsMain: React.FC = () => {
                   cursor: isLoading ? 'not-allowed' : 'pointer'
                 }}
               >
-                {isLoading ? '🔄 Starting Interview...' : '🎤 Start Interview'}
+                {isLoading ? '🔄 Starting Interview...' : interviewMode === 'voice' ? '🎤 Start Voice Interview' : '⌨️ Start Interview'}
               </button>
             </div>
           </div>
@@ -550,6 +792,21 @@ const PracticeTestsMain: React.FC = () => {
 
       {/* Interview View - Conversational Mode */}
       {viewMode === 'interview' && session && session.current_question && (
+        <>
+        {/* VOICE MODE: Two-window interview with camera */}
+        {interviewMode === 'voice' ? (
+          <div className={styles.section} style={{ padding: 0, overflow: 'hidden' }}>
+            <VoiceInterview
+              session={session}
+              conversationHistory={conversationHistory}
+              onAnswerSubmit={handleVoiceAnswerSubmit}
+              onSkip={handleVoiceSkip}
+              onEndInterview={handleEndInterviewEarly}
+              isLoading={isLoading}
+            />
+          </div>
+        ) : (
+        /* TEXT MODE: Original text-based interview UI */
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
             <h3>💬 Interview Session</h3>
@@ -797,6 +1054,8 @@ const PracticeTestsMain: React.FC = () => {
             )}
           </div>
         </div>
+        )}
+        </>
       )}
 
       {/* Summary View */}
@@ -810,13 +1069,78 @@ const PracticeTestsMain: React.FC = () => {
             <h2 style={{ marginBottom: '0.5rem' }}>Great job completing the interview!</h2>
             <p style={{ color: '#64748b' }}>Review your detailed analysis in the summary section</p>
             
+            {/* Answer Summary for Feedback Analysis */}
+            {interviewAnswers.length > 0 && (
+              <div style={{ 
+                marginTop: '2rem', 
+                padding: '1.5rem',
+                background: '#f8fafc',
+                borderRadius: '12px',
+                textAlign: 'left',
+                maxHeight: '400px',
+                overflowY: 'auto'
+              }}>
+                <h4 style={{ marginBottom: '1rem', color: '#1e293b' }}>
+                  📝 Your Answers ({interviewAnswers.filter(a => !a.isSkipped).length} answered, {interviewAnswers.filter(a => a.isSkipped).length} skipped)
+                </h4>
+                {interviewAnswers.map((answer, idx) => (
+                  <div 
+                    key={idx}
+                    style={{
+                      padding: '1rem',
+                      marginBottom: '0.75rem',
+                      background: answer.isSkipped ? '#fef3c7' : '#ffffff',
+                      borderRadius: '8px',
+                      border: `1px solid ${answer.isSkipped ? '#fcd34d' : '#e2e8f0'}`
+                    }}
+                  >
+                    <div style={{ 
+                      fontSize: '0.75rem', 
+                      color: '#64748b', 
+                      marginBottom: '0.5rem',
+                      display: 'flex',
+                      gap: '0.75rem'
+                    }}>
+                      <span>Q{answer.questionNumber}</span>
+                      <span style={{ 
+                        background: '#e2e8f0', 
+                        padding: '0.125rem 0.5rem', 
+                        borderRadius: '4px',
+                        fontSize: '0.7rem'
+                      }}>
+                        {answer.category}
+                      </span>
+                      <span style={{ 
+                        background: answer.difficulty === 'hard' ? '#fee2e2' : answer.difficulty === 'medium' ? '#fef3c7' : '#dcfce7',
+                        padding: '0.125rem 0.5rem', 
+                        borderRadius: '4px',
+                        fontSize: '0.7rem'
+                      }}>
+                        {answer.difficulty}
+                      </span>
+                    </div>
+                    <div style={{ fontWeight: 500, color: '#1e293b', marginBottom: '0.5rem' }}>
+                      {answer.questionText}
+                    </div>
+                    <div style={{ color: '#475569', fontSize: '0.9rem' }}>
+                      {answer.isSkipped ? (
+                        <em style={{ color: '#d97706' }}>⏭️ Skipped</em>
+                      ) : (
+                        answer.answerText || <em style={{ color: '#94a3b8' }}>No answer recorded</em>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
             <button
               onClick={() => {
                 setViewMode('upload');
                 setSession(null);
                 setParsedData(null);
                 setSelectedFile(null);
-                setAllResponses([]);
+                setInterviewAnswers([]);
                 setConversationHistory([]);
                 setShowingResponse(false);
               }}
