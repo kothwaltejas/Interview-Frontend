@@ -66,7 +66,7 @@ interface InterviewAnswer {
 }
 
 type ViewMode = 'upload' | 'job-context' | 'interview' | 'summary';
-type InterviewMode = 'text' | 'voice';  // New: Interview mode type
+// Voice-only interview mode (text mode removed)
 
 const PracticeTestsMain: React.FC = () => {
   // State
@@ -91,7 +91,8 @@ const PracticeTestsMain: React.FC = () => {
   const [error, setError] = useState('');
   
   // New: Voice mode state
-  const [interviewMode, setInterviewMode] = useState<InterviewMode>('text');
+  // Voice-only mode - text mode removed
+  const interviewMode = 'voice';
   const [sttAvailable, setSttAvailable] = useState<boolean | null>(null); // null = checking
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_authToken, setAuthToken] = useState<string | null>(null);
@@ -681,381 +682,109 @@ const PracticeTestsMain: React.FC = () => {
                 </select>
               </div>
 
-              {/* Interview Mode Selection - NEW */}
-              <div style={{ marginBottom: '2rem' }}>
-                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.75rem' }}>
-                  Interview Mode
-                </label>
-                <div style={{ display: 'flex', gap: '1rem' }}>
-                  {/* Text Mode */}
-                  <button
-                    type="button"
-                    onClick={() => setInterviewMode('text')}
-                    style={{
-                      flex: 1,
-                      padding: '1rem',
-                      borderRadius: '12px',
-                      border: interviewMode === 'text' 
-                        ? '3px solid #2563EB' 
-                        : '2px solid #e2e8f0',
-                      background: interviewMode === 'text' 
-                        ? '#eff6ff' 
-                        : '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                    }}
-                  >
-                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⌨️</div>
-                    <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Text Mode</div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                      Type your answers
+              {/* Voice Interview Info */}
+              <div style={{
+                marginBottom: '2rem',
+                padding: '1.25rem',
+                background: 'linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%)',
+                border: '2px solid #93c5fd',
+                borderRadius: '16px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #2563EB, #3b82f6)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1.5rem',
+                  }}>
+                    🎤
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: '#1e40af' }}>
+                      Voice Interview Mode
                     </div>
-                  </button>
-
-                  {/* Voice Mode */}
-                  <button
-                    type="button"
-                    onClick={() => sttAvailable && setInterviewMode('voice')}
-                    disabled={!sttAvailable}
-                    style={{
-                      flex: 1,
-                      padding: '1rem',
-                      borderRadius: '12px',
-                      border: interviewMode === 'voice' 
-                        ? '3px solid #2563EB' 
-                        : '2px solid #e2e8f0',
-                      background: interviewMode === 'voice' 
-                        ? '#eff6ff' 
-                        : sttAvailable ? '#ffffff' : '#f3f4f6',
-                      cursor: sttAvailable ? 'pointer' : 'not-allowed',
-                      opacity: sttAvailable ? 1 : 0.6,
-                      transition: 'all 0.2s ease',
-                    }}
-                  >
-                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🎤</div>
-                    <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
-                      Voice Mode {!sttAvailable && '(Unavailable)'}
+                    <div style={{ fontSize: '0.875rem', color: '#3b82f6' }}>
+                      Real interview experience with AI
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                      {sttAvailable 
-                        ? 'Speak naturally like real interview' 
-                        : sttAvailable === null 
-                          ? 'Checking...' 
-                          : 'Requires backend STT setup'}
-                    </div>
-                  </button>
+                  </div>
                 </div>
                 
-                {/* Voice mode info */}
-                {interviewMode === 'voice' && sttAvailable && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: '0.75rem',
+                  fontSize: '0.875rem',
+                  color: '#1e3a5f',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span>📹</span> Camera enabled
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span>🗣️</span> AI speaks questions
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span>🎙️</span> Voice transcription
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span>⏱️</span> Auto silence detection
+                  </div>
+                </div>
+
+                {!sttAvailable && sttAvailable !== null && (
                   <div style={{
                     marginTop: '1rem',
-                    padding: '1rem',
-                    background: '#f0f9ff',
-                    border: '1px solid #bae6fd',
+                    padding: '0.75rem',
+                    background: '#fef3c7',
+                    border: '1px solid #fcd34d',
                     borderRadius: '8px',
                     fontSize: '0.875rem',
-                    color: '#0c4a6e',
+                    color: '#92400e',
                   }}>
-                    <strong>🎥 Voice Mode Features:</strong>
-                    <ul style={{ margin: '0.5rem 0 0 1rem', paddingLeft: '0' }}>
-                      <li>Camera & microphone will be enabled</li>
-                      <li>AI interviewer speaks questions aloud</li>
-                      <li>Your verbal answers are transcribed</li>
-                      <li>Automatic silence detection ends recording</li>
-                    </ul>
+                    ⚠️ Speech-to-Text service unavailable. Please ensure the backend is running.
                   </div>
                 )}
               </div>
 
               <button
                 onClick={handleStartInterview}
-                disabled={isLoading || !jobContext.target_role || !jobContext.experience_level || !jobContext.interview_type}
+                disabled={isLoading || !sttAvailable || !jobContext.target_role || !jobContext.experience_level || !jobContext.interview_type}
                 style={{
                   width: '100%',
-                  background: '#2563EB',
+                  background: (isLoading || !sttAvailable) ? '#94a3b8' : 'linear-gradient(135deg, #2563EB, #1d4ed8)',
                   color: 'white',
                   border: 'none',
-                  borderRadius: '8px',
-                  padding: '1rem',
-                  fontSize: '1.1rem',
-                  fontWeight: 600,
-                  cursor: isLoading ? 'not-allowed' : 'pointer'
+                  borderRadius: '12px',
+                  padding: '1.25rem',
+                  fontSize: '1.15rem',
+                  fontWeight: 700,
+                  cursor: (isLoading || !sttAvailable) ? 'not-allowed' : 'pointer',
+                  boxShadow: (isLoading || !sttAvailable) ? 'none' : '0 4px 14px rgba(37, 99, 235, 0.4)',
+                  transition: 'all 0.3s ease',
                 }}
               >
-                {isLoading ? '🔄 Starting Interview...' : interviewMode === 'voice' ? '🎤 Start Voice Interview' : '⌨️ Start Interview'}
+                {isLoading ? '🔄 Starting Interview...' : '🎤 Start Voice Interview'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Interview View - Conversational Mode */}
+      {/* Interview View - Voice Mode Only */}
       {viewMode === 'interview' && session && session.current_question && (
-        <>
-        {/* VOICE MODE: Two-window interview with camera */}
-        {interviewMode === 'voice' ? (
-          <div className={styles.section} style={{ padding: 0, overflow: 'hidden' }}>
-            <VoiceInterview
-              session={session}
-              conversationHistory={conversationHistory}
-              onAnswerSubmit={handleVoiceAnswerSubmit}
-              onSkip={handleVoiceSkip}
-              onEndInterview={handleEndInterviewEarly}
-              isLoading={isLoading}
-            />
-          </div>
-        ) : (
-        /* TEXT MODE: Original text-based interview UI */
-        <div className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h3>💬 Interview Session</h3>
-            <div style={{
-              background: '#dbeafe',
-              color: '#1e40af',
-              padding: '0.5rem 1rem',
-              borderRadius: '1rem',
-              fontSize: '0.875rem',
-              fontWeight: 600
-            }}>
-              Question {session.progress.current} of {session.progress.total}
-            </div>
-          </div>
-          
-          <div style={{ padding: '1.5rem' }}>
-            {/* Progress Bar */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <div style={{ background: '#e2e8f0', height: '6px', borderRadius: '3px', overflow: 'hidden' }}>
-                <div style={{
-                  background: '#2563EB',
-                  height: '100%',
-                  width: `${(session.progress.current / session.progress.total) * 100}%`,
-                  transition: 'width 0.3s ease'
-                }} />
-              </div>
-            </div>
-
-            {/* Conversation History */}
-            <div style={{
-              background: '#f8fafc',
-              borderRadius: '12px',
-              padding: '1.5rem',
-              marginBottom: '1.5rem',
-              maxHeight: '400px',
-              overflowY: 'auto',
-              border: '1px solid #e2e8f0'
-            }}>
-              {conversationHistory.map((msg, index) => (
-                <div
-                  key={index}
-                  style={{
-                    marginBottom: '1rem',
-                    display: 'flex',
-                    flexDirection: msg.role === 'interviewer' ? 'row' : 'row-reverse',
-                    gap: '0.75rem',
-                    alignItems: 'flex-start'
-                  }}
-                >
-                  {/* Avatar */}
-                  <div style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '50%',
-                    background: msg.role === 'interviewer' ? '#2563EB' : '#10b981',
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.25rem',
-                    flexShrink: 0
-                  }}>
-                    {msg.role === 'interviewer' ? '👔' : '👤'}
-                  </div>
-                  
-                  {/* Message Bubble */}
-                  <div style={{
-                    background: msg.role === 'interviewer' ? '#ffffff' : '#e0f2fe',
-                    border: msg.role === 'interviewer' ? '2px solid #e2e8f0' : '2px solid #93c5fd',
-                    borderRadius: '16px',
-                    padding: '1rem 1.25rem',
-                    maxWidth: '75%',
-                    wordWrap: 'break-word'
-                  }}>
-                    <div style={{
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: msg.role === 'interviewer' ? '#2563EB' : '#0c4a6e',
-                      marginBottom: '0.5rem'
-                    }}>
-                      {msg.role === 'interviewer' ? 'Interviewer' : 'You'}
-                    </div>
-                    <div style={{
-                      fontSize: '1rem',
-                      color: '#1e293b',
-                      lineHeight: '1.6',
-                      whiteSpace: 'pre-wrap'
-                    }}>
-                      {msg.message}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              
-              {/* Typing Indicator */}
-              {isLoading && (
-                <div style={{
-                  display: 'flex',
-                  gap: '0.75rem',
-                  alignItems: 'flex-start',
-                  marginTop: '1rem'
-                }}>
-                  <div style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '50%',
-                    background: '#2563EB',
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.25rem'
-                  }}>
-                    👔
-                  </div>
-                  <div style={{
-                    background: '#ffffff',
-                    border: '2px solid #e2e8f0',
-                    borderRadius: '16px',
-                    padding: '1rem 1.25rem',
-                    display: 'flex',
-                    gap: '0.5rem',
-                    alignItems: 'center'
-                  }}>
-                    <span style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      background: '#94a3b8',
-                      animation: 'pulse 1.5s ease-in-out infinite'
-                    }} />
-                    <span style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      background: '#94a3b8',
-                      animation: 'pulse 1.5s ease-in-out 0.2s infinite'
-                    }} />
-                    <span style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      background: '#94a3b8',
-                      animation: 'pulse 1.5s ease-in-out 0.4s infinite'
-                    }} />
-                  </div>
-                </div>
-              )}
-              
-              {/* Scroll target */}
-              <div ref={conversationEndRef} />
-            </div>
-
-            {/* Answer Input */}
-            {!showingResponse && (
-              <>
-                <textarea
-                  value={currentAnswer}
-                  onChange={(e) => setCurrentAnswer(e.target.value)}
-                  placeholder="Type your answer here..."
-                  style={{
-                    width: '100%',
-                    minHeight: '150px',
-                    padding: '1rem',
-                    borderRadius: '12px',
-                    border: '2px solid #e2e8f0',
-                    fontSize: '1rem',
-                    fontFamily: 'inherit',
-                    marginBottom: '1rem',
-                    resize: 'vertical',
-                    outline: 'none'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#2563EB'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                />
-
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                  <button
-                    onClick={handleSubmitAnswer}
-                    disabled={isLoading || !currentAnswer.trim()}
-                    style={{
-                      flex: 1,
-                      background: isLoading || !currentAnswer.trim() ? '#94a3b8' : '#2563EB',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      padding: '1rem',
-                      fontSize: '1rem',
-                      fontWeight: 600,
-                      cursor: isLoading || !currentAnswer.trim() ? 'not-allowed' : 'pointer',
-                      transition: 'background 0.2s'
-                    }}
-                  >
-                    {isLoading ? '💬 Sending...' : '📤 Send Answer'}
-                  </button>
-
-                  <button
-                    onClick={handleSkipQuestion}
-                    disabled={isLoading}
-                    style={{
-                      background: 'transparent',
-                      color: '#64748b',
-                      border: '2px solid #e2e8f0',
-                      borderRadius: '8px',
-                      padding: '1rem 1.5rem',
-                      fontSize: '0.875rem',
-                      fontWeight: 600,
-                      cursor: isLoading ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#94a3b8';
-                      e.currentTarget.style.color = '#475569';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#e2e8f0';
-                      e.currentTarget.style.color = '#64748b';
-                    }}
-                  >
-                    ⏭️ Skip
-                  </button>
-                </div>
-                
-                <div style={{
-                  marginTop: '0.75rem',
-                  fontSize: '0.875rem',
-                  color: '#64748b',
-                  textAlign: 'center'
-                }}>
-                  💡 Take your time and provide detailed answers for better conversation
-                </div>
-              </>
-            )}
-            
-            {/* Waiting for next question */}
-            {showingResponse && !isLoading && (
-              <div style={{
-                textAlign: 'center',
-                padding: '2rem',
-                color: '#64748b',
-                fontSize: '0.875rem'
-              }}>
-                Preparing next question...
-              </div>
-            )}
-          </div>
+        <div className={styles.section} style={{ padding: 0, overflow: 'hidden' }}>
+          <VoiceInterview
+            session={session}
+            conversationHistory={conversationHistory}
+            onAnswerSubmit={handleVoiceAnswerSubmit}
+            onSkip={handleVoiceSkip}
+            onEndInterview={handleEndInterviewEarly}
+            isLoading={isLoading}
+          />
         </div>
-        )}
-        </>
       )}
 
       {/* Summary View */}

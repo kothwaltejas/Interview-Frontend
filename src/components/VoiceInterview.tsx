@@ -131,7 +131,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   // Voice recorder with silence detection
   const recorder = useVoiceRecorder({
-    silenceDuration: 1500, // 1.5 seconds of silence to stop
+    silenceDuration: 2500, // 2.5 seconds of silence to stop (increased from 1.5 for more natural pauses)
     autoStopOnSilence: true,
     onSilenceDetected: () => {
       console.log('🔇 Silence detected');
@@ -208,6 +208,9 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     }
   }, [phase, cameraStream]);
 
+  // Track question change cooldown to prevent immediate auto-skip
+  const questionChangedTimeRef = useRef<number | null>(null);
+  
   // Reset spoken flag when question changes (allow new question to be spoken)
   useEffect(() => {
     if (session.current_question) {
@@ -218,12 +221,16 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         console.log('📝 Question changed:', currentQuestionIdRef.current, '→', newQuestionId);
         currentQuestionIdRef.current = newQuestionId;
         
+        // Mark time of question change for cooldown
+        questionChangedTimeRef.current = Date.now();
+        
         // Reset all silence-related state for new question
         isAutoSkippingRef.current = false;
         hasUserSpokenThisRecording.current = false;
         recordingStartTimeRef.current = null;
+        emptyTranscriptCountRef.current = 0;  // Reset empty transcript counter
         
-        // Clear any pending timers
+        // Clear any pending timers IMMEDIATELY
         if (silenceTimerRef.current) {
           clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = null;
@@ -234,6 +241,8 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         }
         setSilenceCountdown(null);
         setShowSkipWarning(false);
+        
+        console.log('✅ All silence timers cleared for new question');
       }
       
       // When question ID changes, reset so next message will be spoken
@@ -345,10 +354,15 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   // ============ SILENCE DETECTION & AUTO-SKIP ============
   
-  // Constants for silence detection
-  const EXTENDED_SILENCE_THRESHOLD = 7000;  // 7 seconds of silence before warning
-  const SPEECH_THRESHOLD = 15;  // Audio level above this = user is speaking
-  const COUNTDOWN_SECONDS = 3;  // 3-2-1 countdown before skip
+  // Constants for silence detection - TUNED TO PREVENT ACCIDENTAL SKIPS
+  const EXTENDED_SILENCE_THRESHOLD = 15000;  // 15 seconds of silence before warning (increased from 10)
+  const SPEECH_THRESHOLD = 12;  // Audio level above this = user is speaking (lowered for sensitivity)
+  const COUNTDOWN_SECONDS = 5;  // 5-4-3-2-1 countdown before skip
+  const QUESTION_CHANGE_COOLDOWN = 8000;  // 8s grace period after question change (for TTS + think time)
+  const MAX_EMPTY_TRANSCRIPTS = 3;  // Skip after this many consecutive empty transcripts
+  
+  // Track consecutive empty transcripts
+  const emptyTranscriptCountRef = useRef(0);
   
   /**
    * Clear all silence-related timers
@@ -393,6 +407,14 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
       return;
     }
     
+    // Additional safety check: don't auto-skip if question just changed
+    const timeSinceQuestionChange = Date.now() - (questionChangedTimeRef.current || 0);
+    if (timeSinceQuestionChange < QUESTION_CHANGE_COOLDOWN) {
+      console.log('⚠️ Question just changed, aborting auto-skip');
+      clearSilenceTimers();
+      return;
+    }
+    
     console.log('⏭️ Auto-skipping question due to extended silence');
     isAutoSkippingRef.current = true;  // Set flag to prevent recording callback from processing
     clearSilenceTimers();
@@ -402,7 +424,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     setTimeout(async () => {
       await onSkip();
       // isAutoSkippingRef will be reset when new question arrives
-    }, 200);
+    }, 300);  // Increased delay for stability
   }, [clearSilenceTimers, recorder, onSkip]);
 
   /**
@@ -466,9 +488,16 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     if (!showSkipWarning && silenceCountdown === null) {
       const timeSinceRecordingStart = Date.now() - (recordingStartTimeRef.current || Date.now());
       
+      // COOLDOWN CHECK: Don't trigger auto-skip right after question change
+      const timeSinceQuestionChange = Date.now() - (questionChangedTimeRef.current || 0);
+      if (timeSinceQuestionChange < QUESTION_CHANGE_COOLDOWN) {
+        // Still in cooldown period - don't start any silence detection
+        return;
+      }
+      
       // Only start silence timer if:
-      // 1. User hasn't spoken yet AND recording has been going for 7+ seconds
-      // 2. OR user has spoken but now silent for 7+ seconds
+      // 1. User hasn't spoken yet AND recording has been going for 10+ seconds
+      // 2. OR user has spoken but now silent for 10+ seconds
       if (!hasUserSpokenThisRecording.current && timeSinceRecordingStart >= EXTENDED_SILENCE_THRESHOLD) {
         // User never spoke - start countdown
         if (!silenceTimerRef.current) {
@@ -543,6 +572,8 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
         if (transcribedText.length > 0) {
           console.log('📝 Transcript:', transcribedText);
+          // Reset empty counter on successful speech
+          emptyTranscriptCountRef.current = 0;
           setPhase('PROCESSING_ANSWER');
           
           // Pass transcript to existing interview logic
@@ -550,17 +581,38 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
           setPhase('IDLE');
         } else {
           // Empty transcript - maybe user didn't speak
-          setError('No speech detected. Please speak clearly and try again.');
+          emptyTranscriptCountRef.current += 1;
+          console.log(`⚠️ Empty transcript #${emptyTranscriptCountRef.current}/${MAX_EMPTY_TRANSCRIPTS}`);
+          
+          // Auto-skip after too many empty transcripts
+          if (emptyTranscriptCountRef.current >= MAX_EMPTY_TRANSCRIPTS) {
+            console.log('⏭️ Too many empty transcripts, auto-skipping...');
+            emptyTranscriptCountRef.current = 0;
+            handleAutoSkip();
+            return;
+          }
+          
+          setError('No speech detected. Speak now or the question will be skipped.');
           setPhase('IDLE');
-          setTimeout(startListening, 1500);
+          // Longer delay before auto-restart (5s instead of 1.5s)
+          setTimeout(startListening, 5000);
         }
       } else {
         // STT returned but no transcript
         const errorMsg = result.detail || result.error || 'Could not recognize speech';
         console.warn('STT returned no transcript:', result);
+        emptyTranscriptCountRef.current += 1;
+        
+        if (emptyTranscriptCountRef.current >= MAX_EMPTY_TRANSCRIPTS) {
+          console.log('⏭️ Too many failed transcripts, auto-skipping...');
+          emptyTranscriptCountRef.current = 0;
+          handleAutoSkip();
+          return;
+        }
+        
         setError(`${errorMsg}. Please try again.`);
         setPhase('IDLE');
-        setTimeout(startListening, 1500);
+        setTimeout(startListening, 5000);
       }
     } catch (err) {
       console.error('STT Error:', err);
