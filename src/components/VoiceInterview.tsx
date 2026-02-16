@@ -97,6 +97,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
   
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);  // Ref for camera cleanup on unmount
   const hasSpokenCurrentQuestion = useRef(false);
   const hasUserSpokenThisRecording = useRef(false);  // Track if user spoke during current recording
   const recordingStartTimeRef = useRef<number | null>(null);  // When recording started
@@ -104,28 +105,41 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);  // Timer for 3-2-1 countdown
   const isAutoSkippingRef = useRef(false);  // Prevent race conditions during auto-skip
   const currentQuestionIdRef = useRef<number | null>(null);  // Track current question to detect changes
+  const isTTSSpeakingRef = useRef(false);  // CRITICAL: Prevent recording while TTS is speaking
+  const skipInProgressRef = useRef(false);  // Prevent double-skip from manual skip button
+  const emptyTranscriptCountRef = useRef(0);  // Track consecutive empty transcripts
 
   // ============ HOOKS ============
   
   // Text-to-Speech for AI interviewer
   const tts = useTextToSpeech({
     onStart: () => {
+      isTTSSpeakingRef.current = true;  // Mark TTS as speaking
       setPhase('AI_SPEAKING');
       console.log('🗣️ AI started speaking');
     },
     onEnd: () => {
       console.log('🗣️ AI finished speaking');
-      // Small pause before opening mic (feels more natural)
+      isTTSSpeakingRef.current = false;  // Mark TTS as done
+      // Longer pause before opening mic (2s feels more natural and prevents audio overlap)
       setPhase('WAITING_TO_RECORD');
       setTimeout(() => {
-        startListening();
-      }, 800);
+        // Double-check all flags before starting recording
+        if (!isTTSSpeakingRef.current && !isAutoSkippingRef.current && !skipInProgressRef.current) {
+          startListening();
+        }
+      }, 2000);  // Increased from 800ms to 2000ms
     },
     onError: (err) => {
       console.error('TTS Error:', err);
-      // If TTS fails, still allow recording
+      isTTSSpeakingRef.current = false;
+      // If TTS fails, still allow recording after delay
       setPhase('WAITING_TO_RECORD');
-      setTimeout(startListening, 500);
+      setTimeout(() => {
+        if (!isTTSSpeakingRef.current && !isAutoSkippingRef.current && !skipInProgressRef.current) {
+          startListening();
+        }
+      }, 1000);
     },
   });
 
@@ -163,6 +177,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         
         console.log('📹 Camera stream obtained successfully');
         setCameraStream(stream);
+        cameraStreamRef.current = stream;  // Store in ref for cleanup
         
         if (videoRef.current) {
           console.log('📹 Attaching stream to video element');
@@ -178,10 +193,15 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
     initCamera();
 
-    // Cleanup camera on unmount
+    // Cleanup camera on unmount - use ref since state is stale in cleanup
     return () => {
-      if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
+      console.log('📹 Camera cleanup running');
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach(track => {
+          track.stop();
+          console.log('📹 Stopped camera track:', track.kind);
+        });
+        cameraStreamRef.current = null;
       }
     };
   }, []);
@@ -224,8 +244,11 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         // Mark time of question change for cooldown
         questionChangedTimeRef.current = Date.now();
         
-        // Reset all silence-related state for new question
+        // Reset state for new question - CRITICAL for preventing bugs
+        // NOTE: Do NOT reset isTTSSpeakingRef here - it will be set by speakInterviewerMessage
+        // and the TTS onStart/onEnd callbacks will manage it. Resetting here causes race conditions.
         isAutoSkippingRef.current = false;
+        skipInProgressRef.current = false;
         hasUserSpokenThisRecording.current = false;
         recordingStartTimeRef.current = null;
         emptyTranscriptCountRef.current = 0;  // Reset empty transcript counter
@@ -242,7 +265,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         setSilenceCountdown(null);
         setShowSkipWarning(false);
         
-        console.log('✅ All silence timers cleared for new question');
+        console.log('✅ State and timers reset for new question');
       }
       
       // When question ID changes, reset so next message will be spoken
@@ -257,12 +280,19 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
   /**
    * Speak the AI interviewer's message
    * Called when new interviewer message appears in conversation
+   * CRITICAL: Sets isTTSSpeakingRef BEFORE calling speak to prevent race conditions
    */
   const speakInterviewerMessage = useCallback((message: string) => {
     if (message === lastSpokenMessage) return;
     if (!message || message.trim().length === 0) return;
     
     console.log('🗣️ Speaking message:', message.substring(0, 50) + '...');
+    
+    // CRITICAL: Set TTS speaking flag BEFORE calling speak()
+    // This prevents recording from starting in the race window before onStart callback
+    isTTSSpeakingRef.current = true;
+    setPhase('AI_SPEAKING');
+    
     setLastSpokenMessage(message);
     hasSpokenCurrentQuestion.current = true;
     setError(null); // Clear any previous errors
@@ -354,15 +384,12 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   // ============ SILENCE DETECTION & AUTO-SKIP ============
   
-  // Constants for silence detection - TUNED TO PREVENT ACCIDENTAL SKIPS
-  const EXTENDED_SILENCE_THRESHOLD = 15000;  // 15 seconds of silence before warning (increased from 10)
-  const SPEECH_THRESHOLD = 12;  // Audio level above this = user is speaking (lowered for sensitivity)
-  const COUNTDOWN_SECONDS = 5;  // 5-4-3-2-1 countdown before skip
-  const QUESTION_CHANGE_COOLDOWN = 8000;  // 8s grace period after question change (for TTS + think time)
-  const MAX_EMPTY_TRANSCRIPTS = 3;  // Skip after this many consecutive empty transcripts
-  
-  // Track consecutive empty transcripts
-  const emptyTranscriptCountRef = useRef(0);
+  // Constants for silence detection - TUNED TO USER'S REQUIREMENTS
+  const EXTENDED_SILENCE_THRESHOLD = 7000;  // 7 seconds of silence before warning
+  const SPEECH_THRESHOLD = 8;  // Audio level above this = user is speaking (lowered for better sensitivity)
+  const COUNTDOWN_SECONDS = 3;  // 3-2-1 countdown before skip
+  const QUESTION_CHANGE_COOLDOWN = 5000;  // 5s grace period after question change (for TTS + think time)
+  const MAX_EMPTY_TRANSCRIPTS = 2;  // Skip after this many consecutive empty transcripts
   
   /**
    * Clear all silence-related timers
@@ -382,10 +409,28 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   /**
    * Start listening for user's voice answer
+   * CRITICAL: Only starts if TTS is not speaking and no skip in progress
    */
   const startListening = useCallback(() => {
+    // CRITICAL: Don't start recording if TTS is still speaking
+    if (isTTSSpeakingRef.current) {
+      console.log('⚠️ Cannot start recording - TTS is still speaking');
+      return;
+    }
+    
+    // Don't start if auto-skipping
+    if (isAutoSkippingRef.current) {
+      console.log('⚠️ Cannot start recording - auto-skip in progress');
+      return;
+    }
+    
+    // Don't start if manual skip in progress
+    if (skipInProgressRef.current) {
+      console.log('⚠️ Cannot start recording - manual skip in progress');
+      return;
+    }
+    
     // Reset silence tracking for new recording
-    isAutoSkippingRef.current = false;  // Reset auto-skip flag
     hasUserSpokenThisRecording.current = false;
     recordingStartTimeRef.current = Date.now();
     clearSilenceTimers();
@@ -417,6 +462,11 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     
     console.log('⏭️ Auto-skipping question due to extended silence');
     isAutoSkippingRef.current = true;  // Set flag to prevent recording callback from processing
+    
+    // CRITICAL: Also set TTS flag to prevent any recording from starting
+    // during the transition to the next question
+    isTTSSpeakingRef.current = true;
+    
     clearSilenceTimers();
     recorder.stopRecording();
     
@@ -453,11 +503,11 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   /**
    * Monitor audio level during recording for silence/speech detection
+   * This runs on every audioLevel change to detect when user is speaking
    */
   useEffect(() => {
     // Only run during RECORDING phase
     if (phase !== 'RECORDING') {
-      clearSilenceTimers();
       return;
     }
 
@@ -483,40 +533,62 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         silenceTimerRef.current = null;
       }
     }
+  }, [phase, recorder.audioLevel, showSkipWarning, silenceCountdown, clearSilenceTimers]);
 
-    // Check for extended silence (only if not already showing warning)
-    if (!showSkipWarning && silenceCountdown === null) {
-      const timeSinceRecordingStart = Date.now() - (recordingStartTimeRef.current || Date.now());
-      
-      // COOLDOWN CHECK: Don't trigger auto-skip right after question change
-      const timeSinceQuestionChange = Date.now() - (questionChangedTimeRef.current || 0);
-      if (timeSinceQuestionChange < QUESTION_CHANGE_COOLDOWN) {
-        // Still in cooldown period - don't start any silence detection
+  /**
+   * Periodic silence check - runs every second during recording
+   * This ensures silence detection works even if audioLevel doesn't change
+   */
+  useEffect(() => {
+    if (phase !== 'RECORDING') {
+      return;
+    }
+
+    const silenceCheckInterval = setInterval(() => {
+      // Skip if already showing warning or in countdown
+      if (showSkipWarning || silenceCountdown !== null) {
         return;
       }
       
-      // Only start silence timer if:
-      // 1. User hasn't spoken yet AND recording has been going for 10+ seconds
-      // 2. OR user has spoken but now silent for 10+ seconds
-      if (!hasUserSpokenThisRecording.current && timeSinceRecordingStart >= EXTENDED_SILENCE_THRESHOLD) {
-        // User never spoke - start countdown
-        if (!silenceTimerRef.current) {
-          console.log('🔇 Extended silence detected (no speech) - starting countdown');
-          startSkipCountdown();
-        }
-      } else if (hasUserSpokenThisRecording.current && !isUserSpeaking) {
-        // User spoke before but now silent - start a new silence timer
-        if (!silenceTimerRef.current) {
-          silenceTimerRef.current = setTimeout(() => {
-            console.log('🔇 Extended silence after speech - starting countdown');
-            startSkipCountdown();
-          }, EXTENDED_SILENCE_THRESHOLD);
-        }
+      // Skip if still in cooldown period after question change
+      const timeSinceQuestionChange = Date.now() - (questionChangedTimeRef.current || 0);
+      if (timeSinceQuestionChange < QUESTION_CHANGE_COOLDOWN) {
+        return;
       }
-    }
-  }, [phase, recorder.audioLevel, showSkipWarning, silenceCountdown, clearSilenceTimers, startSkipCountdown]);
+      
+      const timeSinceRecordingStart = Date.now() - (recordingStartTimeRef.current || Date.now());
+      const currentAudioLevel = recorder.audioLevel;
+      const isCurrentlySilent = currentAudioLevel <= SPEECH_THRESHOLD;
+      
+      // Check if user never spoke and recording has been going long enough
+      if (!hasUserSpokenThisRecording.current && timeSinceRecordingStart >= EXTENDED_SILENCE_THRESHOLD) {
+        console.log('🔇 Extended silence detected (no speech) - starting countdown');
+        startSkipCountdown();
+        return;
+      }
+      
+      // Check if user spoke before but now silent for extended period
+      if (hasUserSpokenThisRecording.current && isCurrentlySilent && !silenceTimerRef.current) {
+        console.log('🔇 User stopped speaking, starting silence timer');
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+          console.log('🔇 Extended silence after speech - starting countdown');
+          startSkipCountdown();
+        }, EXTENDED_SILENCE_THRESHOLD);
+      }
+    }, 1000);  // Check every second
 
-  // Cleanup timers on unmount or phase change
+    return () => clearInterval(silenceCheckInterval);
+  }, [phase, showSkipWarning, silenceCountdown, recorder.audioLevel, startSkipCountdown]);
+
+  // Clear timers when phase changes away from RECORDING
+  useEffect(() => {
+    if (phase !== 'RECORDING') {
+      clearSilenceTimers();
+    }
+  }, [phase, clearSilenceTimers]);
+
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       clearSilenceTimers();
@@ -527,9 +599,10 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
    * Handle completed recording - send to STT backend
    */
   const handleRecordingComplete = async (audioBlob: Blob) => {
-    // CRITICAL: Check if we're auto-skipping - don't process recording
-    if (isAutoSkippingRef.current) {
-      console.log('⏭️ Recording completed during auto-skip, ignoring');
+    // CRITICAL: Check if skip/auto-skip is in progress - discard recording
+    // This prevents partial answers from being applied to the next question
+    if (isAutoSkippingRef.current || skipInProgressRef.current) {
+      console.log('⏭️ Recording completed during skip, discarding audio');
       return;
     }
     
@@ -537,12 +610,17 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     setError(null);
     
     try {
-      // Validate blob
-      if (!audioBlob || audioBlob.size < 1000) {
+      // Validate blob - allow smaller blobs as speech can be short
+      if (!audioBlob || audioBlob.size < 500) {
         console.warn('Audio blob too small:', audioBlob?.size);
-        setError('Recording too short. Please speak clearly and try again.');
+        setError('Recording too short. Please speak and hold.');
         setPhase('IDLE');
-        setTimeout(startListening, 1500);
+        // Restart recording after delay, but check flags first
+        setTimeout(() => {
+          if (!isAutoSkippingRef.current && !isTTSSpeakingRef.current && !skipInProgressRef.current) {
+            startListening();
+          }
+        }, 2000);
         return;
       }
 
@@ -566,6 +644,14 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
       const result = await response.json();
       console.log('STT Result:', result);
 
+      // CRITICAL: Re-check skip flags after async operation
+      // User might have pressed skip while STT was processing
+      if (isAutoSkippingRef.current || skipInProgressRef.current) {
+        console.log('⏭️ Skip pressed during STT processing, discarding transcript');
+        setPhase('IDLE');
+        return;
+      }
+
       if (result.success && result.transcript) {
         const transcribedText = result.transcript.trim();
         setTranscript(transcribedText);
@@ -575,6 +661,13 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
           // Reset empty counter on successful speech
           emptyTranscriptCountRef.current = 0;
           setPhase('PROCESSING_ANSWER');
+          
+          // Final check before submitting - user might skip at the last moment
+          if (isAutoSkippingRef.current || skipInProgressRef.current) {
+            console.log('⏭️ Skip pressed before answer submit, discarding');
+            setPhase('IDLE');
+            return;
+          }
           
           // Pass transcript to existing interview logic
           await onAnswerSubmit(transcribedText);
@@ -592,10 +685,14 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
             return;
           }
           
-          setError('No speech detected. Speak now or the question will be skipped.');
+          setError('No speech detected. Please speak clearly.');
           setPhase('IDLE');
-          // Longer delay before auto-restart (5s instead of 1.5s)
-          setTimeout(startListening, 5000);
+          // Restart recording after delay, but check flags first
+          setTimeout(() => {
+            if (!isAutoSkippingRef.current && !isTTSSpeakingRef.current && !skipInProgressRef.current) {
+              startListening();
+            }
+          }, 3000);  // 3 second delay
         }
       } else {
         // STT returned but no transcript
@@ -610,9 +707,14 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
           return;
         }
         
-        setError(`${errorMsg}. Please try again.`);
+        setError(`${errorMsg}. Please speak clearly and try again.`);
         setPhase('IDLE');
-        setTimeout(startListening, 5000);
+        // Restart recording after delay, but check flags first
+        setTimeout(() => {
+          if (!isAutoSkippingRef.current && !isTTSSpeakingRef.current && !skipInProgressRef.current) {
+            startListening();
+          }
+        }, 3000);  // 3 second delay
       }
     } catch (err) {
       console.error('STT Error:', err);
@@ -625,11 +727,28 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   /**
    * Handle skip button - uses existing skip logic
+   * CRITICAL: Prevents double-skip with flag and prevents recording during transition
    */
   const handleSkip = async () => {
-    // Stop any ongoing processes
+    // Prevent double-skip
+    if (skipInProgressRef.current || isAutoSkippingRef.current) {
+      console.log('⚠️ Skip already in progress, ignoring');
+      return;
+    }
+    
+    console.log('⏭️ Manual skip triggered - stopping all recording');
+    
+    // CRITICAL: Set ALL skip flags BEFORE stopping recording
+    // This ensures handleRecordingComplete will discard any pending audio
+    skipInProgressRef.current = true;
+    isAutoSkippingRef.current = true;  // Also set this for extra safety
+    isTTSSpeakingRef.current = true;   // Prevent new recordings from starting
+    
+    // Stop any ongoing processes - this may trigger onRecordingComplete
+    // but the flags above will cause it to discard the audio
     recorder.stopRecording();
     tts.stop();
+    clearSilenceTimers();
     
     // Reset state
     setTranscript('');
@@ -641,6 +760,8 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
       await onSkip();
     } finally {
       setPhase('IDLE');
+      // NOTE: Skip flags will be reset when new question arrives (in question change effect)
+      // This ensures flags stay set until the new question is fully loaded
     }
   };
 
@@ -650,6 +771,58 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
   const handleStopRecording = () => {
     recorder.stopRecording();
   };
+
+  /**
+   * Properly end the interview with full cleanup
+   * Stops camera, mic, TTS, and all timers before calling onEndInterview
+   */
+  const handleEndInterview = useCallback(() => {
+    console.log('🛑 Ending interview - cleaning up all resources');
+    
+    // CRITICAL: Set flags BEFORE stopping recording to discard any pending audio
+    // Don't reset them - the component will unmount anyway
+    isTTSSpeakingRef.current = true;
+    isAutoSkippingRef.current = true;
+    skipInProgressRef.current = true;
+    
+    // Stop all processes
+    recorder.stopRecording();
+    tts.stop();
+    clearSilenceTimers();
+    
+    // Stop camera - use both state and ref to ensure we get it
+    const streamToStop = cameraStreamRef.current || cameraStream;
+    if (streamToStop) {
+      console.log('📹 Stopping camera stream');
+      streamToStop.getTracks().forEach(track => {
+        track.stop();
+        console.log('📹 Stopped track:', track.kind);
+      });
+      cameraStreamRef.current = null;
+    }
+    
+    // Clear any pending timeouts that might restart recording
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    
+    // Reset phase and state
+    setPhase('IDLE');
+    setError(null);
+    setTranscript('');
+    setSilenceCountdown(null);
+    setShowSkipWarning(false);
+    
+    console.log('✅ Cleanup complete - calling onEndInterview');
+    
+    // Call the parent's end interview handler
+    onEndInterview();
+  }, [recorder, tts, clearSilenceTimers, cameraStream, onEndInterview]);
 
   // ============ UI HELPERS ============
 
@@ -1284,7 +1457,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
               {/* End Interview Button */}
               <button
-                onClick={onEndInterview}
+                onClick={handleEndInterview}
                 disabled={isLoading}
                 style={{
                   padding: '0.875rem 1.5rem',

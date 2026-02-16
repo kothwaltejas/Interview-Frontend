@@ -79,20 +79,20 @@ const PracticeTestsMain: React.FC = () => {
     interview_type: ''
   });
   const [session, setSession] = useState<SessionState | null>(null);
-  const [currentAnswer, setCurrentAnswer] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_currentAnswer, setCurrentAnswer] = useState('');
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_evaluation, _setEvaluation] = useState<Evaluation | null>(null);
   
   // Store all interview answers for feedback analysis
   const [interviewAnswers, setInterviewAnswers] = useState<InterviewAnswer[]>([]);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
-  const [showingResponse, setShowingResponse] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_showingResponse, setShowingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   
-  // New: Voice mode state
-  // Voice-only mode - text mode removed
-  const interviewMode = 'voice';
+  // Voice-only mode
   const [sttAvailable, setSttAvailable] = useState<boolean | null>(null); // null = checking
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_authToken, setAuthToken] = useState<string | null>(null);
@@ -144,28 +144,40 @@ const PracticeTestsMain: React.FC = () => {
   /**
    * Record an answer for feedback analysis.
    * Called when user submits or skips a question.
+   * CRITICAL: Includes duplicate check to prevent recording same question twice
    */
   const recordAnswer = (answerText: string, isSkipped: boolean = false) => {
     if (!session?.current_question) return;
     
     const question = session.current_question;
-    const answer: InterviewAnswer = {
-      questionId: question.id,
-      questionNumber: session.progress.current,
-      questionText: question.question,
-      category: question.category,
-      difficulty: question.difficulty,
-      answerText: answerText,
-      isSkipped: isSkipped,
-      timestamp: new Date(),
-    };
     
-    setInterviewAnswers(prev => [...prev, answer]);
-    console.log('📝 Answer recorded for feedback:', {
-      questionNumber: answer.questionNumber,
-      category: answer.category,
-      isSkipped: answer.isSkipped,
-      answerLength: answer.answerText.length
+    // DUPLICATE CHECK: Don't record if we already have an answer for this question
+    setInterviewAnswers(prev => {
+      const alreadyRecorded = prev.some(a => a.questionId === question.id);
+      if (alreadyRecorded) {
+        console.log('⚠️ Answer already recorded for question', question.id, '- skipping duplicate');
+        return prev;
+      }
+      
+      const answer: InterviewAnswer = {
+        questionId: question.id,
+        questionNumber: session.progress.current,
+        questionText: question.question,
+        category: question.category,
+        difficulty: question.difficulty,
+        answerText: answerText,
+        isSkipped: isSkipped,
+        timestamp: new Date(),
+      };
+      
+      console.log('📝 Answer recorded for feedback:', {
+        questionNumber: answer.questionNumber,
+        category: answer.category,
+        isSkipped: answer.isSkipped,
+        answerLength: answer.answerText.length
+      });
+      
+      return [...prev, answer];
     });
   };
 
@@ -188,9 +200,8 @@ const PracticeTestsMain: React.FC = () => {
   };
 
   // Voice mode: Handle skip (reuses existing logic)
+  // NOTE: Do NOT call recordAnswer here - handleSkipQuestion already does it
   const handleVoiceSkip = async () => {
-    // Record skipped question for feedback analysis
-    recordAnswer('', true);
     await handleSkipQuestion();
   };
 
@@ -406,30 +417,6 @@ const PracticeTestsMain: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // Submit Answer (Conversational Mode) - Text input version
-  const handleSubmitAnswer = async () => {
-    if (!session || !currentAnswer.trim()) {
-      setError('Please provide an answer');
-      return;
-    }
-
-    // Record answer for feedback analysis BEFORE submitting
-    recordAnswer(currentAnswer.trim(), false);
-
-    // Add candidate's answer to conversation
-    setConversationHistory(prev => [...prev, {
-      role: 'candidate',
-      message: currentAnswer,
-      timestamp: new Date()
-    }]);
-
-    const candidateAnswer = currentAnswer;
-    setCurrentAnswer('');
-    
-    // Use shared submission logic
-    await handleAnswerSubmission(candidateAnswer);
   };
 
   // Skip Question
