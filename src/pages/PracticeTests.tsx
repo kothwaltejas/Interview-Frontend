@@ -529,7 +529,12 @@ const PracticeTestsMain: React.FC = () => {
       {viewMode === 'upload' && (
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h3>📄 Upload Resume</h3>
+            <h3>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6C4.9 2 4 2.9 4 4v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm2-10h8v2H8v-2zm0 3h8v2H8v-2zm0 3h5v2H8v-2z"/>
+              </svg>
+              Upload Resume
+            </h3>
           </div>
           <div style={{ padding: '2rem', textAlign: 'center' }}>
             <label htmlFor="resume-upload" style={{
@@ -542,7 +547,11 @@ const PracticeTestsMain: React.FC = () => {
               width: '100%',
               maxWidth: '500px'
             }}>
-              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📄</div>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="#64748b">
+                  <path d="M14 2H6C4.9 2 4 2.9 4 4v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm2-10h8v2H8v-2zm0 3h8v2H8v-2zm0 3h5v2H8v-2z"/>
+                </svg>
+              </div>
               <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                 {selectedFile ? selectedFile.name : 'Click to upload your resume'}
               </div>
@@ -556,25 +565,45 @@ const PracticeTestsMain: React.FC = () => {
               />
             </label>
             
-            {selectedFile && (
-              <button
-                onClick={handleParseResume}
-                disabled={isLoading}
-                style={{
-                  marginTop: '2rem',
-                  background: '#2563EB',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '1rem 3rem',
-                  fontSize: '1.1rem',
-                  fontWeight: 600,
-                  cursor: isLoading ? 'not-allowed' : 'pointer'
-                }}
-              >
-                {isLoading ? '🔄 Parsing...' : '🤖 Parse Resume'}
-              </button>
-            )}
+            <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center' }}>
+              {selectedFile && (
+                <button
+                  onClick={handleParseResume}
+                  disabled={isLoading}
+                  style={{
+                    background: isLoading ? '#94a3b8' : '#2563EB',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '1rem 2rem',
+                    fontSize: '1rem',
+                    fontWeight: 600,
+                    cursor: isLoading ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    transition: 'background-color 0.2s ease'
+                  }}
+                >
+                  {isLoading ? (
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 6V2l-5 5 5 5V8c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C18.6 17.33 19 15.7 19 14c0-3.87-3.13-7-7-7z"/>
+                        <path d="M6 14c0-3.31 2.69-6 6-6v4l5-5-5-5v4C8.13 6 5 9.13 5 14c0 1.7.4 3.33 1.24 4.26L7.7 16.8C7.25 15.97 7 15.01 7 14z"/>
+                      </svg>
+                      Parsing...
+                    </>
+                  ) : (
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                      </svg>
+                      Parse Resume
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
             
             {error && (
               <div style={{ marginTop: '1rem', color: '#dc2626', background: '#fef2f2', padding: '1rem', borderRadius: '8px' }}>
@@ -589,7 +618,12 @@ const PracticeTestsMain: React.FC = () => {
       {viewMode === 'job-context' && parsedData && (
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h3>🎯 Interview Details</h3>
+            <h3>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+              </svg>
+              Interview Details
+            </h3>
           </div>
           <div style={{ padding: '2rem' }}>
             <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -781,7 +815,11 @@ const PracticeTestsMain: React.FC = () => {
             <h3>🎉 Interview Complete!</h3>
           </div>
           <div style={{ padding: '2rem', textAlign: 'center' }}>
-            <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎯</div>
+            <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="#22c55e">
+                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
             <h2 style={{ marginBottom: '0.5rem' }}>Great job completing the interview!</h2>
             <p style={{ color: '#64748b' }}>Review your detailed analysis in the summary section</p>
             

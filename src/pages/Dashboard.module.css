@@ -257,10 +257,38 @@
   font-size: 0.875rem;
   color: #475569;
   transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .dropdownItem:hover {
   background: #f8fafc;
+}
+
+.dropdownItem svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.dropdownItem span {
+  flex: 1;
+}
+
+.logoutItem {
+  color: #dc2626;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 0.25rem;
+}
+
+.logoutItem:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.logoutItem svg {
+  color: #dc2626;
+  opacity: 1;
 }
 
 /* Dashboard Content */
@@ -377,6 +405,9 @@
   font-weight: 600;
   color: #1e293b;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .viewAllBtn {

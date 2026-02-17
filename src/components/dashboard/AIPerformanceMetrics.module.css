@@ -1,0 +1,181 @@
+.metricsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 1024px) {
+  .metricsGrid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+  }
+}
+
+.metricCard {
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+  transition: box-shadow 0.2s;
+}
+
+.metricCard:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.cardBlue {
+  background: linear-gradient(to bottom right, #eff6ff, #f0f9ff);
+}
+
+.cardGreen {
+  background: linear-gradient(to bottom right, #f0fdf4, #ecfdf5);
+}
+
+.cardPurple {
+  background: linear-gradient(to bottom right, #faf5ff, #f3e8ff);
+}
+
+.cardYellow {
+  background: linear-gradient(to bottom right, #fffbeb, #fefce8);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.metricIcon {
+  font-size: 1.5rem;
+}
+
+.trendIcon {
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trendUp {
+  color: #10b981;
+}
+
+.trendDown {
+  color: #ef4444;
+}
+
+.trendStable {
+  color: #64748b;
+}
+
+.cardContent {
+  margin-bottom: 16px;
+}
+
+.metricName {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.metricDescription {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.scoreSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scoreRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scoreValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.scoreHigh {
+  color: #10b981;
+}
+
+.scoreMedium {
+  color: #f59e0b;
+}
+
+.scoreLow {
+  color: #ef4444;
+}
+
+.scorePercentage {
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.progressBar {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 9999px;
+  height: 6px;
+}
+
+.progressFill {
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(to right, #9ca3af, #4b5563);
+  transition: width 0.5s;
+}
+
+.scoreDetails {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+@media (max-width: 640px) {
+  .metricCard {
+    padding: 12px;
+  }
+  
+  .cardHeader {
+    margin-bottom: 12px;
+  }
+  
+  .metricIcon {
+    font-size: 1.25rem;
+  }
+  
+  .metricName {
+    font-size: 0.875rem;
+  }
+  
+  .metricDescription {
+    font-size: 0.75rem;
+  }
+  
+  .scoreValue {
+    font-size: 1.125rem;
+  }
+  
+  .scoreSection {
+    gap: 8px;
+  }
+  
+  .progressBar {
+    height: 4px;
+  }
+  
+  .progressFill {
+    height: 4px;
+  }
+}

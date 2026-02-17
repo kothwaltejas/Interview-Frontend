@@ -1,0 +1,131 @@
+.chartContainer {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+  padding: 24px;
+  min-height: 360px;
+}
+
+.chartHeader {
+  margin-bottom: 16px;
+}
+
+.chartTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.chartSubtitle {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.chartLayout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 280px;
+}
+
+.chartWrapper {
+  flex: 1;
+  height: 100%;
+  width: 100%;
+  min-width: 200px;
+  min-height: 200px;
+  position: relative;
+}
+
+.centerTotal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.totalNumber {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.totalLabel {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.legend {
+  flex-shrink: 0;
+  width: 128px;
+  margin-left: 16px;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.legendColor {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.legendText {
+  font-size: 0.875rem;
+  color: #64748b;
+  flex: 1;
+}
+
+.legendValue {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .chartContainer {
+    padding: 16px;
+    min-height: 300px;
+  }
+  
+  .chartLayout {
+    flex-direction: column;
+    height: auto;
+    min-height: 300px;
+  }
+  
+  .chartWrapper {
+    width: 100%;
+    height: 220px;
+    min-height: 200px;
+  }
+  
+  .legend {
+    width: 100%;
+    margin-left: 0;
+    margin-top: 16px;
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+  }
+  
+  .legendItem {
+    margin-bottom: 0;
+  }
+  
+  .totalNumber {
+    font-size: 1.25rem;
+  }
+  
+  .totalLabel {
+    font-size: 0.75rem;
+  }
+}
