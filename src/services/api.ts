@@ -133,8 +133,14 @@ export class ApiService {
       // Generate chart data from recent interviews
       const chartData = this.generateChartData(recentInterviews);
 
+      // Fix total_interviews count by using actual interview data
+      const correctedStatistics = {
+        ...statistics,
+        total_interviews: recentInterviews.length  // Use actual count from database records
+      };
+
       return {
-        statistics,
+        statistics: correctedStatistics,
         recentInterviews,
         chartData
       };
