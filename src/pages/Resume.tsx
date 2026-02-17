@@ -83,7 +83,7 @@ const Resume: React.FC = () => {
                 title="Resume Preview"
               />
             </div>
-            <div style={{marginTop: '1rem', textAlign: 'center', display: 'flex', justify: 'center', gap: '1rem'}}>
+            <div style={{marginTop: '1rem', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '1rem'}}>
               <button 
                 style={{
                   background: '#f1f5f9',
