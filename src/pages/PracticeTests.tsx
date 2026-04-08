@@ -87,6 +87,8 @@ const PracticeTestsMain: React.FC = () => {
   // Store all interview answers for feedback analysis
   const [interviewAnswers, setInterviewAnswers] = useState<InterviewAnswer[]>([]);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
+  // NEW: Store evaluations for each answer
+  const [answerEvaluations, setAnswerEvaluations] = useState<Map<number, any>>(new Map());
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_showingResponse, setShowingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -196,7 +198,13 @@ const PracticeTestsMain: React.FC = () => {
       timestamp: new Date()
     }]);
     
+    // NEW: Store evaluation if available
+    const answerIndex = session.progress.current - 1;
+    
     await handleAnswerSubmission(answerText);
+    
+    // After submission, response might include evaluation
+    // It will be captured in handleAnswerSubmission
   };
 
   // Voice mode: Handle skip (reuses existing logic)
@@ -254,6 +262,13 @@ const PracticeTestsMain: React.FC = () => {
       const result = await response.json();
 
       if (result.success) {
+        // NEW: Store evaluation if available in the response
+        if (result.evaluation) {
+          const questionIndex = session.progress.current - 1;
+          setAnswerEvaluations(prev => new Map(prev).set(questionIndex, result.evaluation));
+          console.log(`📊 Evaluation captured for question ${session.progress.current}`);
+        }
+        
         // Check if interview is complete
         if (result.is_complete) {
           // Add final acknowledgment
@@ -402,6 +417,8 @@ const PracticeTestsMain: React.FC = () => {
         });
         // Reset interview answers for new session
         setInterviewAnswers([]);
+        // NEW: Reset evaluations for new session
+        setAnswerEvaluations(new Map());
         // Add opening question to conversation
         setConversationHistory([{
           role: 'interviewer',
@@ -835,56 +852,96 @@ const PracticeTestsMain: React.FC = () => {
                 overflowY: 'auto'
               }}>
                 <h4 style={{ marginBottom: '1rem', color: '#1e293b' }}>
-                  📝 Your Answers ({interviewAnswers.filter(a => !a.isSkipped).length} answered, {interviewAnswers.filter(a => a.isSkipped).length} skipped)
+                  📝 Your Answers & Evaluations ({interviewAnswers.filter(a => !a.isSkipped).length} answered, {interviewAnswers.filter(a => a.isSkipped).length} skipped)
                 </h4>
-                {interviewAnswers.map((answer, idx) => (
-                  <div 
-                    key={idx}
-                    style={{
-                      padding: '1rem',
-                      marginBottom: '0.75rem',
-                      background: answer.isSkipped ? '#fef3c7' : '#ffffff',
-                      borderRadius: '8px',
-                      border: `1px solid ${answer.isSkipped ? '#fcd34d' : '#e2e8f0'}`
-                    }}
-                  >
-                    <div style={{ 
-                      fontSize: '0.75rem', 
-                      color: '#64748b', 
-                      marginBottom: '0.5rem',
-                      display: 'flex',
-                      gap: '0.75rem'
-                    }}>
-                      <span>Q{answer.questionNumber}</span>
-                      <span style={{ 
-                        background: '#e2e8f0', 
-                        padding: '0.125rem 0.5rem', 
-                        borderRadius: '4px',
-                        fontSize: '0.7rem'
+                {interviewAnswers.map((answer, idx) => {
+                  const evaluation = answerEvaluations.get(idx);
+                  
+                  return (
+                    <div 
+                      key={idx}
+                      style={{
+                        padding: '1rem',
+                        marginBottom: '0.75rem',
+                        background: answer.isSkipped ? '#fef3c7' : '#ffffff',
+                        borderRadius: '8px',
+                        border: `1px solid ${answer.isSkipped ? '#fcd34d' : '#e2e8f0'}`
+                      }}
+                    >
+                      <div style={{ 
+                        fontSize: '0.75rem', 
+                        color: '#64748b', 
+                        marginBottom: '0.5rem',
+                        display: 'flex',
+                        gap: '0.75rem',
+                        alignItems: 'center'
                       }}>
-                        {answer.category}
-                      </span>
-                      <span style={{ 
-                        background: answer.difficulty === 'hard' ? '#fee2e2' : answer.difficulty === 'medium' ? '#fef3c7' : '#dcfce7',
-                        padding: '0.125rem 0.5rem', 
-                        borderRadius: '4px',
-                        fontSize: '0.7rem'
-                      }}>
-                        {answer.difficulty}
-                      </span>
-                    </div>
-                    <div style={{ fontWeight: 500, color: '#1e293b', marginBottom: '0.5rem' }}>
-                      {answer.questionText}
-                    </div>
-                    <div style={{ color: '#475569', fontSize: '0.9rem' }}>
-                      {answer.isSkipped ? (
-                        <em style={{ color: '#d97706' }}>⏭️ Skipped</em>
-                      ) : (
-                        answer.answerText || <em style={{ color: '#94a3b8' }}>No answer recorded</em>
+                        <span>Q{answer.questionNumber}</span>
+                        <span style={{ 
+                          background: '#e2e8f0', 
+                          padding: '0.125rem 0.5rem', 
+                          borderRadius: '4px',
+                          fontSize: '0.7rem'
+                        }}>
+                          {answer.category}
+                        </span>
+                        <span style={{ 
+                          background: answer.difficulty === 'hard' ? '#fee2e2' : answer.difficulty === 'medium' ? '#fef3c7' : '#dcfce7',
+                          padding: '0.125rem 0.5rem', 
+                          borderRadius: '4px',
+                          fontSize: '0.7rem'
+                        }}>
+                          {answer.difficulty}
+                        </span>
+                        {/* NEW: Show evaluation score if available */}
+                        {evaluation && !answer.isSkipped && (
+                          <span style={{ 
+                            background: `${evaluation.average_score >= 7 ? '#dcfce7' : evaluation.average_score >= 5 ? '#fef3c7' : '#fee2e2'}`,
+                            padding: '0.125rem 0.5rem', 
+                            borderRadius: '4px',
+                            fontSize: '0.7rem',
+                            fontWeight: '600'
+                          }}>
+                            ⭐ {evaluation.average_score.toFixed(1)}/10
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontWeight: 500, color: '#1e293b', marginBottom: '0.5rem' }}>
+                        {answer.questionText}
+                      </div>
+                      <div style={{ color: '#475569', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                        {answer.isSkipped ? (
+                          <em style={{ color: '#d97706' }}>⏭️ Skipped</em>
+                        ) : (
+                          answer.answerText || <em style={{ color: '#94a3b8' }}>No answer recorded</em>
+                        )}
+                      </div>
+                      {/* NEW: Show feedback if evaluation is available */}
+                      {evaluation && !answer.isSkipped && (
+                        <div style={{
+                          marginTop: '0.75rem',
+                          paddingTop: '0.75rem',
+                          borderTop: '1px solid #e2e8f0',
+                          fontSize: '0.85rem'
+                        }}>
+                          <div style={{ color: '#475569', marginBottom: '0.5rem' }}>
+                            <strong>💭 Feedback:</strong> {evaluation.feedback}
+                          </div>
+                          {evaluation.strengths && evaluation.strengths.length > 0 && (
+                            <div style={{ color: '#16a34a', marginBottom: '0.25rem', fontSize: '0.8rem' }}>
+                              <strong>✨ Strengths:</strong> {evaluation.strengths.slice(0, 2).join(', ')}
+                            </div>
+                          )}
+                          {evaluation.weak_areas && evaluation.weak_areas.length > 0 && (
+                            <div style={{ color: '#dc2626', fontSize: '0.8rem' }}>
+                              <strong>📈 Focus Areas:</strong> {evaluation.weak_areas.join(', ')}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             
@@ -895,6 +952,7 @@ const PracticeTestsMain: React.FC = () => {
                 setParsedData(null);
                 setSelectedFile(null);
                 setInterviewAnswers([]);
+                setAnswerEvaluations(new Map());  // NEW: Clear evaluations
                 setConversationHistory([]);
                 setShowingResponse(false);
               }}
