@@ -26,6 +26,39 @@ export interface RecentInterview {
   duration?: number;
 }
 
+export interface InterviewSession {
+  id: string;
+  target_role: string | null;
+  experience_level: string | null;
+  interview_type: string | null;
+  total_questions: number | null;
+  answered_questions: number | null;
+  skipped_questions: number | null;
+  duration_seconds: number | null;
+  average_score: number | null;
+  performance_tier: string | null;
+  overall_feedback: string | null;
+  topics_covered: string[] | null;
+  completed_at: string;
+}
+
+export interface InterviewAnswer {
+  question_number: number;
+  question_text: string;
+  category: string | null;
+  difficulty: string | null;
+  answer_text: string;
+  is_skipped: boolean;
+  duration_seconds: number | null;
+  score: number | null;
+  evaluation_summary: any;
+}
+
+export interface InterviewSessionDetail {
+  session: InterviewSession;
+  answers: InterviewAnswer[];
+}
+
 export interface DashboardData {
   statistics: UserStatistics;
   recentInterviews: RecentInterview[];
@@ -119,6 +152,55 @@ export class ApiService {
     } catch (error) {
       console.error('Error fetching recent interviews:', error);
       return [];
+    }
+  }
+
+  // Fetch interview sessions for My Interviews page
+  static async getInterviewSessions(limit = 20, offset = 0): Promise<InterviewSession[]> {
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_BASE_URL}/api/db/sessions?limit=${limit}&offset=${offset}`, {
+        method: 'GET',
+        headers
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch sessions: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.sessions || [];
+    } catch (error) {
+      console.error('Error fetching interview sessions:', error);
+      return [];
+    }
+  }
+
+  // Fetch full session detail with answers
+  static async getInterviewSessionDetail(sessionId: string): Promise<InterviewSessionDetail | null> {
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_BASE_URL}/api/db/sessions/${sessionId}`, {
+        method: 'GET',
+        headers
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch session detail: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.session) {
+        return null;
+      }
+
+      return {
+        session: data.session,
+        answers: data.answers || []
+      };
+    } catch (error) {
+      console.error('Error fetching interview session detail:', error);
+      return null;
     }
   }
 
