@@ -1,0 +1,391 @@
+/* ============================================
+   Interview Lab (PracticeTests) — Styles
+   ============================================ */
+
+/* ─── Step progress bar ─── */
+.stepBar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1.75rem;
+}
+.step {
+  display: flex; align-items: center; gap: .5rem;
+  color: #94a3b8;
+  font-size: .8rem; font-weight: 500;
+}
+.stepActive { color: #2563EB; }
+.stepDone   { color: #059669; }
+
+.stepCircle {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid currentColor;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .75rem; font-weight: 700; flex-shrink: 0;
+  background: white;
+  transition: all .2s;
+}
+.stepActive .stepCircle { background: #2563EB; color: white; border-color: #2563EB; }
+.stepDone   .stepCircle { background: #059669; color: white; border-color: #059669; }
+
+.stepLabel { white-space: nowrap; }
+
+.stepLine {
+  flex: 1; height: 2px; background: #e2e8f0;
+  margin: 0 .5rem; min-width: 20px;
+  transition: background .3s;
+}
+.stepLineDone { background: #059669; }
+
+/* ─── Error banner ─── */
+.errorBanner {
+  display: flex; align-items: center; gap: .6rem;
+  padding: .875rem 1.25rem; border-radius: 10px;
+  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+  font-size: .875rem; font-weight: 500; margin-bottom: 1.25rem;
+}
+.errorClose { margin-left: auto; background: none; border: none; font-size: 1.25rem; cursor: pointer; color: inherit; opacity: .7; padding: 0; line-height: 1; }
+.errorClose:hover { opacity: 1; }
+
+/* ─── Common action row ─── */
+.actionRow {
+  display: flex; justify-content: flex-end; padding: 1.5rem;
+  border-top: 1px solid #e2e8f0; margin-top: .5rem;
+}
+
+/* ─── Primary button ─── */
+.primaryBtn {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .875rem 2rem; border-radius: 10px; border: none;
+  background: linear-gradient(135deg, #2563EB, #1d4ed8);
+  color: white; font-size: .95rem; font-weight: 600;
+  cursor: pointer; transition: all .2s;
+  box-shadow: 0 4px 14px rgba(37,99,235,.3);
+}
+.primaryBtn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(37,99,235,.4); }
+.primaryBtn:disabled { background: #94a3b8; box-shadow: none; cursor: not-allowed; }
+
+/* ─── Back button ─── */
+.backBtn {
+  background: none; border: 1px solid #e2e8f0; border-radius: 7px;
+  padding: .4rem .875rem; color: #64748b; font-size: .82rem; font-weight: 500;
+  cursor: pointer; transition: all .18s;
+}
+.backBtn:hover { background: #f8fafc; color: #1e293b; }
+
+/* ─── Spinner ─── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block; width: 16px; height: 16px;
+  border: 2.5px solid rgba(255,255,255,.35); border-top-color: white;
+  border-radius: 50%; animation: spin .65s linear infinite;
+}
+
+/* ════════════════════════════════════════════
+   STEP 1 — Resume selection
+   ════════════════════════════════════════════ */
+.resumeSelectBody {
+  padding: 1.5rem;
+}
+
+.resumeSelectHint {
+  font-size: .875rem; color: #64748b; margin: 0 0 1rem 0;
+}
+
+/* Saved resume grid */
+.resumeGrid {
+  display: flex; flex-direction: column; gap: .625rem;
+  margin-bottom: 1.5rem;
+}
+
+.resumeCard {
+  display: flex; align-items: center; gap: .875rem;
+  padding: .875rem 1rem; border-radius: 12px;
+  border: 2px solid #e2e8f0; background: #f8fafc;
+  cursor: pointer; text-align: left; transition: all .18s; width: 100%;
+}
+.resumeCard:hover { border-color: #93c5fd; background: #eff6ff; }
+.resumeCardSelected { border-color: #2563EB; background: #eff6ff; }
+
+.resumeCardIcon {
+  width: 42px; height: 42px; border-radius: 10px;
+  background: #dbeafe; color: #1d4ed8;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.resumeCardSelected .resumeCardIcon { background: #2563EB; color: white; }
+
+.resumeCardInfo { flex: 1; min-width: 0; }
+.resumeCardName {
+  font-size: .875rem; font-weight: 600; color: #1e293b;
+  display: flex; align-items: center; gap: .5rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.resumeCardMeta { font-size: .75rem; color: #64748b; margin-top: .15rem; }
+
+.latestTag {
+  font-size: .65rem; background: #dbeafe; color: #1e40af;
+  border-radius: 999px; padding: 2px 7px; font-weight: 700;
+}
+
+.resumeCheckmark {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: #2563EB; color: white;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+
+/* Skeleton loaders for resumes */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+.resumeSkeletons { display: flex; flex-direction: column; gap: .625rem; margin-bottom: 1.5rem; }
+.resumeSkeleton {
+  height: 68px; border-radius: 12px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+/* Upload zone */
+.uploadZone { margin-bottom: 1.25rem; }
+.uploadCard {
+  display: flex; align-items: center; gap: .875rem;
+  padding: 1rem 1.25rem; border-radius: 12px; cursor: pointer;
+  border: 2px dashed #cbd5e1; background: #f8fafc;
+  transition: all .18s; width: 100%;
+}
+.uploadCard:hover { border-color: #93c5fd; background: #eff6ff; }
+.uploadCardSelected { border-color: #2563EB !important; border-style: solid; background: #eff6ff; }
+
+.uploadIcon {
+  width: 48px; height: 48px; border-radius: 10px;
+  background: #f1f5f9; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.uploadCardSelected .uploadIcon { background: #dbeafe; }
+
+.uploadText { display: flex; flex-direction: column; gap: .15rem; }
+.uploadText strong { font-size: .875rem; font-weight: 600; color: #1e293b; }
+.uploadText span   { font-size: .775rem; color: #64748b; }
+
+/* ════════════════════════════════════════════
+   STEP 2 — Job Context
+   ════════════════════════════════════════════ */
+.jobContextBody { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
+
+/* Two-column layout */
+.jobContextCols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.75rem;
+  align-items: start;
+}
+@media (max-width: 740px) {
+  .jobContextCols { grid-template-columns: 1fr; }
+}
+.jobContextLeft { display: flex; flex-direction: column; gap: 1rem; }
+.jobContextRight { display: flex; flex-direction: column; gap: 1rem; }
+
+.fieldGroup { margin-bottom: .25rem; }
+.fieldLabel {
+  display: block; font-size: .82rem; font-weight: 700; color: #374151;
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: .75rem;
+}
+.required { color: #ef4444; }
+
+/* Role button grid */
+.roleGrid {
+  display: flex; flex-wrap: wrap; gap: .5rem;
+}
+.roleBtn {
+  padding: .5rem 1rem; border-radius: 8px;
+  border: 1.5px solid #e2e8f0; background: #f8fafc;
+  color: #475569; font-size: .85rem; font-weight: 500;
+  cursor: pointer; transition: all .18s; white-space: nowrap;
+}
+.roleBtn:hover { border-color: #93c5fd; background: #eff6ff; color: #1e40af; }
+.roleBtnActive {
+  border-color: #2563EB; background: #dbeafe; color: #1e40af; font-weight: 700;
+}
+
+/* Chip row */
+.chipRow { display: flex; flex-wrap: wrap; gap: .5rem; }
+.chip {
+  padding: .5rem 1.125rem; border-radius: 999px;
+  border: 1.5px solid #e2e8f0; background: #f8fafc;
+  color: #475569; font-size: .85rem; font-weight: 500;
+  cursor: pointer; transition: all .18s;
+}
+.chip:hover { border-color: #93c5fd; background: #eff6ff; }
+.chipActive { border-color: #2563EB; background: #dbeafe; color: #1e40af; font-weight: 600; }
+
+/* Selection summary tags */
+.selectionSummary { display: flex; gap: .5rem; flex-wrap: wrap; margin-right: auto; }
+.selTag {
+  background: #dbeafe; color: #1e40af; border-radius: 999px;
+  padding: .3rem .875rem; font-size: .8rem; font-weight: 600;
+}
+
+/* Voice info card */
+.voiceInfoCard {
+  background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+  border: 1.5px solid #93c5fd; border-radius: 14px; padding: 1.25rem;
+}
+.voiceInfoHeader { display: flex; align-items: center; gap: .875rem; margin-bottom: 1rem; }
+.voiceInfoIcon { font-size: 1.75rem; line-height: 1; }
+.voiceInfoTitle { font-size: 1rem; font-weight: 700; color: #1e40af; }
+.voiceInfoSub   { font-size: .8rem; color: #3b82f6; margin-top: .1rem; }
+.sttWarning {
+  margin-left: auto; background: #fef3c7; border: 1px solid #fcd34d;
+  color: #92400e; border-radius: 6px; padding: .25rem .625rem;
+  font-size: .75rem; font-weight: 600;
+}
+.voiceFeatures { display: flex; flex-wrap: wrap; gap: .5rem; }
+.voiceFeature {
+  background: rgba(255,255,255,.6); border-radius: 6px; padding: .3rem .625rem;
+  font-size: .8rem; color: #1e3a5f;
+}
+
+/* ════════════════════════════════════════════
+   STEP 4 — Summary
+   ════════════════════════════════════════════ */
+.summaryBody {
+  padding: 2rem; display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.summaryIcon { margin-bottom: 1rem; }
+.summaryTitle    { font-size: 1.5rem; font-weight: 700; color: #1e293b; margin: 0 0 .375rem; }
+.summarySubtitle { font-size: 1rem; color: #64748b; margin: 0 0 .25rem; }
+.summaryNote     { font-size: .875rem; color: #94a3b8; margin: 0 0 2rem; }
+
+.summaryAnswers { width: 100%; max-width: 720px; text-align: left; }
+.summaryAnswersTitle {
+  font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: #64748b; margin: 0 0 .875rem;
+}
+.summaryCard {
+  border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 1rem;
+  background: #f8fafc; margin-bottom: .75rem;
+}
+.summaryCardSkipped { border-color: #fde68a; background: #fffbeb; }
+
+.summaryCardTop {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .5rem;
+}
+.qNum { background: #475569; color: white; border-radius: 999px; padding: 2px 8px; font-size: .7rem; font-weight: 700; }
+.qCat { background: #f1f5f9; color: #475569; border-radius: 999px; padding: 2px 8px; font-size: .7rem; }
+.qDiff { background: #f1f5f9; color: #475569; border-radius: 999px; padding: 2px 8px; font-size: .7rem; }
+.qScore { font-size: .8rem; font-weight: 700; }
+.skippedTag { background: #fef3c7; color: #92400e; border-radius: 999px; padding: 2px 8px; font-size: .7rem; font-weight: 600; }
+
+.summaryQText { font-size: .9rem; font-weight: 500; color: #1e293b; margin: 0 0 .5rem; line-height: 1.5; }
+.summaryAText { font-size: .85rem; color: #475569; line-height: 1.55; margin: 0; background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: .625rem; }
+
+.evalBox { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #e2e8f0; font-size: .82rem; }
+.evalFeedback  { color: #475569; margin: 0 0 .25rem; }
+.evalStrengths { color: #16a34a; margin: 0 0 .125rem; }
+.evalWeak      { color: #dc2626; margin: 0; }
+
+/* ─── Responsive ─── */
+@media (max-width: 600px) {
+  .stepLabel { display: none; }
+  .roleGrid { gap: .375rem; }
+  .roleBtn, .chip { font-size: .78rem; padding: .45rem .75rem; }
+  .actionRow { justify-content: stretch; }
+  .primaryBtn { width: 100%; justify-content: center; }
+}
+
+/* ============================================
+   Wizard Setup (Step 2) - New Design
+   ============================================ */
+
+.wizardHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.25rem 1.75rem; border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.wizardHeaderLeft { display: flex; align-items: center; gap: 1rem; }
+.wizardTitle { font-size: 1.1rem; font-weight: 700; color: #1e293b; margin: 0 0 .2rem; }
+.wizardSub  { font-size: .8rem; color: #64748b; margin: 0; }
+.sttBanner {
+  display: flex; align-items: center; gap: .4rem;
+  background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
+  border-radius: 8px; padding: .4rem .875rem; font-size: .78rem; font-weight: 600;
+}
+.wizardBody { display: flex; flex-direction: column; overflow-y: auto; max-height: calc(100vh - 280px); }
+.wizardSection { padding: 1.5rem 1.75rem; border-bottom: 1px solid #f1f5f9; }
+.wizardSection:last-child { border-bottom: none; }
+.wizardSectionLabel {
+  display: flex; align-items: center; gap: .625rem;
+  font-size: .8rem; font-weight: 700; color: #374151;
+  text-transform: uppercase; letter-spacing: .07em; margin-bottom: 1rem;
+}
+.wizardSectionNum {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #2563EB; color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .72rem; font-weight: 800; flex-shrink: 0;
+}
+.wizardRequired { color: #ef4444; }
+.roleCardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .625rem; }
+.roleCard2 {
+  display: flex; flex-direction: column; align-items: center; gap: .5rem;
+  padding: .875rem .75rem; border-radius: 10px;
+  border: 1.5px solid #e2e8f0; background: white;
+  cursor: pointer; transition: all .15s;
+  font-family: inherit; text-align: center; position: relative;
+}
+.roleCard2:hover { border-color: #93c5fd; background: #eff6ff; transform: translateY(-1px); }
+.roleCard2Active { border-color: #2563EB; background: #eff6ff; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+.roleCard2Icon {
+  width: 36px; height: 36px; border-radius: 8px; background: #f1f5f9;
+  display: flex; align-items: center; justify-content: center; color: #64748b;
+}
+.roleCard2Active .roleCard2Icon { background: #dbeafe; color: #2563EB; }
+.roleCard2Label { font-size: .8rem; font-weight: 600; color: #374151; line-height: 1.25; }
+.roleCard2Active .roleCard2Label { color: #1d4ed8; }
+.roleCard2Check {
+  position: absolute; top: -6px; right: -6px; width: 20px; height: 20px;
+  border-radius: 50%; background: #2563EB;
+  display: flex; align-items: center; justify-content: center;
+}
+.expRow { display: flex; gap: .75rem; flex-wrap: wrap; }
+.expBtn {
+  flex: 1; min-width: 130px; padding: .875rem 1rem;
+  border: 1.5px solid #e2e8f0; border-radius: 10px; background: white;
+  cursor: pointer; transition: all .15s; font-family: inherit;
+  display: flex; flex-direction: column; gap: .5rem; align-items: flex-start;
+  font-size: .85rem; font-weight: 600; color: #374151;
+}
+.expBtn:hover { border-color: #93c5fd; background: #eff6ff; }
+.expBtnActive { border-color: #2563EB; background: #eff6ff; color: #1d4ed8; }
+.expBtnBar { display: flex; gap: 3px; }
+.expBar { width: 16px; height: 5px; border-radius: 3px; background: #e2e8f0; }
+.expBarFill { background: #94a3b8; }
+.expBtnActive .expBarFill { background: #2563EB; }
+.typeCardRow { display: flex; gap: .875rem; flex-wrap: wrap; }
+.typeCard {
+  flex: 1; min-width: 160px; padding: 1.25rem 1rem;
+  border: 1.5px solid #e2e8f0; border-radius: 12px; background: white;
+  cursor: pointer; transition: all .18s; text-align: left;
+  display: flex; flex-direction: column; gap: .5rem; font-family: inherit;
+}
+.typeCard:hover { border-color: #c7d2fe; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+.typeCardActive { box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+.typeCardIcon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.typeCardLabel { font-size: .9rem; font-weight: 700; }
+.typeCardDesc { font-size: .77rem; color: #94a3b8; line-height: 1.4; font-weight: 400; }
+.wizardFooter {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 1.125rem 1.75rem; border-top: 2px solid #e2e8f0;
+  background: white; flex-shrink: 0;
+}
+.wizardPreview { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; flex: 1; color: #64748b; font-size: .825rem; }
+.previewTag { background: #dbeafe; color: #1e40af; border-radius: 999px; padding: .25rem .75rem; font-size: .78rem; font-weight: 600; }
+.startBtn {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .875rem 2rem; border-radius: 12px; border: none;
+  background: linear-gradient(135deg, #2563EB, #1d4ed8);
+  color: white; font-size: .95rem; font-weight: 700;
+  cursor: pointer; transition: all .2s; white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(37,99,235,.35); font-family: inherit;
+}
+.startBtn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(37,99,235,.45); }
+.startBtn:disabled { background: #94a3b8; cursor: not-allowed; box-shadow: none; }

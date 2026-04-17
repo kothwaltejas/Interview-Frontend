@@ -3,10 +3,10 @@ import styles from './RecentInterviews.module.css';
 
 interface RecentInterview {
   id: string;
-  job_role: string;
-  score: number;
+  job_role?: string;
+  score?: number;
   completed_at: string;
-  duration: number;
+  duration?: number;
   status: string;
 }
 
@@ -110,19 +110,19 @@ const RecentInterviews: React.FC<RecentInterviewsProps> = ({ data }) => {
                 </div>
                 
                 <div>
-                  <span className={getRoleBadgeColor(interview.job_role)}>
-                    {interview.job_role}
+                  <span className={getRoleBadgeColor(interview.job_role || 'Unknown')}>
+                    {interview.job_role || 'Unknown'}
                   </span>
                 </div>
                 
                 <div>
-                  <span className={getScoreColor(interview.score)}>
+                  <span className={getScoreColor(interview.score ?? 0)}>
                     {typeof interview.score === 'number' ? interview.score.toFixed(1) : '0.0'}/10
                   </span>
                 </div>
                 
                 <div className={styles.durationText}>
-                  {interview.duration}m
+                  {interview.duration ?? 0}m
                 </div>
                 
                 <div>
@@ -136,15 +136,15 @@ const RecentInterviews: React.FC<RecentInterviewsProps> = ({ data }) => {
                   <span className={styles.dateCell}>
                     {formatDate(interview.completed_at)}
                   </span>
-                  <span className={getScoreColor(interview.score)}>
+                  <span className={getScoreColor(interview.score ?? 0)}>
                     {typeof interview.score === 'number' ? interview.score.toFixed(1) : '0.0'}/10
                   </span>
                 </div>
                 <div className={styles.mobileRowBottom}>
-                  <span className={getRoleBadgeColor(interview.job_role)}>
-                    {interview.job_role}
+                  <span className={getRoleBadgeColor(interview.job_role || 'Unknown')}>
+                    {interview.job_role || 'Unknown'}
                   </span>
-                  <span className={styles.durationText}>{interview.duration}m</span>
+                  <span className={styles.durationText}>{interview.duration ?? 0}m</span>
                 </div>
               </div>
             </React.Fragment>

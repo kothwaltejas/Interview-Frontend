@@ -1,817 +1,641 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import styles from './Dashboard.module.css';
+import labStyles from './PracticeTests.module.css';
 import { supabase } from '../lib/supabase';
 import VoiceInterview from '../components/VoiceInterview';
 
-// Types
+// ─── Types ─────────────────────────────────────────────────────────────────
 interface ParsedResumeData {
-  name: string;
-  email: string;
-  phone: string;
-  skills: string[];
-  experience: any[];
-  projects: any[];
-  education: any[];
+  name: string; email: string; phone: string;
+  skills: string[]; experience: any[]; projects: any[]; education: any[];
 }
-
-interface JobContext {
-  target_role: string;
-  experience_level: string;
-  interview_type: string;
-}
-
+interface JobContext { target_role: string; experience_level: string; interview_type: string; }
 interface InterviewQuestion {
-  id: number;
-  question: string;
-  category: string;
-  difficulty: string;
-  focus_area: string;
-  expected_duration_seconds: number;
-  question_number?: number;
-  total_questions?: number;
+  id: number; question: string; category: string; difficulty: string;
+  focus_area: string; expected_duration_seconds: number;
+  question_number?: number; total_questions?: number;
 }
-
 interface SessionState {
   session_id: string;
   current_question: InterviewQuestion | null;
   progress: { current: number; total: number };
 }
-
-interface Evaluation {
-  feedback: string;
-  score: number;
-  follow_up_question?: string;
-}
-
-interface ConversationMessage {
-  role: 'interviewer' | 'candidate';
-  message: string;
-  timestamp: Date;
-}
-
-/**
- * Interface for storing interview answers for feedback analysis.
- * Each answer includes the question, response, and metadata for later evaluation.
- */
+interface Evaluation { feedback: string; score: number; follow_up_question?: string; }
+interface ConversationMessage { role: 'interviewer' | 'candidate'; message: string; timestamp: Date; }
 interface InterviewAnswer {
-  questionId: number;
-  questionNumber: number;
-  questionText: string;
-  category: string;
-  difficulty: string;
-  answerText: string;
-  isSkipped: boolean;
-  timestamp: Date;
-  timeTakenSeconds?: number;
+  questionId: number; questionNumber: number; questionText: string;
+  category: string; difficulty: string; answerText: string;
+  isSkipped: boolean; timestamp: Date; timeTakenSeconds?: number;
+}
+interface SavedResume {
+  id: string; file_name: string; file_url: string;
+  file_size_bytes?: number; file_size?: number; created_at: string;
 }
 
-type ViewMode = 'upload' | 'job-context' | 'interview' | 'summary';
-// Voice-only interview mode (text mode removed)
+type ViewMode = 'select-resume' | 'job-context' | 'interview' | 'summary';
 
+// ─── Fixed role list ────────────────────────────────────────────────────────
+const ROLES = [
+  'Backend Engineer', 'Frontend Engineer', 'Full Stack Engineer',
+  'DSA', 'System Design', 'Database / SQL', 'DevOps', 'Machine Learning', 'QA / Testing',
+];
+const EXPERIENCE_LEVELS = [
+  { value: 'Fresher', label: 'Fresher (0–1 yr)' },
+  { value: '1-3 years', label: 'Junior (1–3 yrs)' },
+  { value: '3-5 years', label: 'Mid-level (3–5 yrs)' },
+  { value: '5+ years', label: 'Senior (5+ yrs)' },
+];
+const ROLE_ICONS: Record<string, string> = {
+  'Backend Engineer': 'M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 12H4v-2h11v2zm3-4H4v-2h14v2zm0-4H4V6h14v2z',
+  'Frontend Engineer': 'M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z',
+  'Full Stack Engineer': 'M12 2l-5.5 9h11L12 2zm0 3.84L13.93 9h-3.87L12 5.84zM17.5 13c-2.49 0-4.5 2.01-4.5 4.5S15.01 22 17.5 22s4.5-2.01 4.5-4.5S19.99 13 17.5 13zm0 7c-1.38 0-2.5-1.12-2.5-2.5S16.12 15 17.5 15s2.5 1.12 2.5 2.5S18.88 20 17.5 20zM3 21.5h8v-8H3v8zm2-6h4v4H5v-4z',
+  'DSA': 'M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z',
+  'System Design': 'M12 3L2 12h3v8h6v-5h2v5h6v-8h3L12 3zm0 12.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z',
+  'Database / SQL': 'M12 3C7.58 3 4 4.79 4 7v10c0 2.21 3.59 4 8 4s8-1.79 8-4V7c0-2.21-3.58-4-8-4zm6 14c0 .5-2.13 2-6 2s-6-1.5-6-2v-2.23c1.61.78 3.72 1.23 6 1.23s4.39-.45 6-1.23V17zm0-4.5c0 .5-2.13 2-6 2s-6-1.5-6-2V10.27c1.61.78 3.72 1.23 6 1.23s4.39-.45 6-1.23V12.5zm-6-3C8.13 9.5 6 8 6 7s2.13-2.5 6-2.5S18 6 18 7s-2.13 2.5-6 2.5z',
+  'DevOps': 'M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-2.5H9.5v-2H12V9l3.5 2.75L12 14.5z',
+  'Machine Learning': 'M21 11.5v-1l-3-3V5c0-.55-.45-1-1-1h-2c-.55 0-1 .45-1 1v.17L9 0 3 6l1.5 1.5 1-1V8c0 .55.45 1 1 1h2v.17l-3 3V11.5L3 14l1.41 1.41L6 13.81V17h12v-3.19l1.59 1.6L21 14l-2.5-2.5zm-9 3.5H7v-4.83l5-5 5 5V15h-5z',
+  'QA / Testing': 'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z',
+};
+
+const INTERVIEW_TYPES = [
+  { value: 'Technical', label: 'Technical', desc: 'Data structures, algorithms, coding', icon: 'M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z', color: '#3b82f6' },
+  { value: 'HR', label: 'HR / Behavioral', desc: 'Soft skills, culture fit, behavior', icon: 'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z', color: '#10b981' },
+  { value: 'Mixed', label: 'Mixed (Tech + HR)', desc: 'Combination of both formats', icon: 'M12 2l-5.5 9h11L12 2zm0 3.84L13.93 9h-3.87L12 5.84zM17.5 13c-2.49 0-4.5 2.01-4.5 4.5S15.01 22 17.5 22s4.5-2.01 4.5-4.5S19.99 13 17.5 13zm0 7c-1.38 0-2.5-1.12-2.5-2.5S16.12 15 17.5 15s2.5 1.12 2.5 2.5S18.88 20 17.5 20zM3 21.5h8v-8H3v8zm2-6h4v4H5v-4z', color: '#8b5cf6' },
+];
+
+// ─── Component ──────────────────────────────────────────────────────────────
 const PracticeTestsMain: React.FC = () => {
-  // State
-  const [viewMode, setViewMode] = useState<ViewMode>('upload');
+  const [viewMode, setViewMode] = useState<ViewMode>('select-resume');
+
+  // Resume selection
+  const [savedResumes, setSavedResumes] = useState<SavedResume[]>([]);
+  const [loadingResumes, setLoadingResumes] = useState(true);
+  const [selectedResumeId, setSelectedResumeId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  // Interview state
   const [parsedData, setParsedData] = useState<ParsedResumeData | null>(null);
-  const [jobContext, setJobContext] = useState<JobContext>({
-    target_role: '',
-    experience_level: '',
-    interview_type: ''
-  });
+  const [jobContext, setJobContext] = useState<JobContext>({ target_role: '', experience_level: '', interview_type: '' });
   const [session, setSession] = useState<SessionState | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_currentAnswer, setCurrentAnswer] = useState('');
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_evaluation, _setEvaluation] = useState<Evaluation | null>(null);
-  
-  // Store all interview answers for feedback analysis
   const [interviewAnswers, setInterviewAnswers] = useState<InterviewAnswer[]>([]);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
-  // NEW: Store evaluations for each answer
   const [answerEvaluations, setAnswerEvaluations] = useState<Map<number, any>>(new Map());
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_showingResponse, setShowingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
-  
-  // Voice-only mode
-  const [sttAvailable, setSttAvailable] = useState<boolean | null>(null); // null = checking
+
+  // STT / auth
+  const [sttAvailable, setSttAvailable] = useState<boolean | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_authToken, setAuthToken] = useState<string | null>(null);
-  
-  // Ref for scrolling to bottom of conversation
+
   const conversationEndRef = useRef<HTMLDivElement>(null);
-  
-  // Auto-scroll to latest message
-  useEffect(() => {
-    conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [conversationHistory]);
 
-  // Log collected answers when interview completes (for feedback analysis)
-  useEffect(() => {
-    if (viewMode === 'summary' && interviewAnswers.length > 0) {
-      console.log('📊 Interview completed - Answers collected for feedback analysis:');
-      console.log('Total answers:', interviewAnswers.length);
-      console.log('Answered:', interviewAnswers.filter(a => !a.isSkipped).length);
-      console.log('Skipped:', interviewAnswers.filter(a => a.isSkipped).length);
-      console.log('Answers data:', interviewAnswers);
-    }
-  }, [viewMode, interviewAnswers]);
+  useEffect(() => { conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [conversationHistory]);
 
-  // New: Check if STT service is available on backend
-  useEffect(() => {
-    const checkSTTAvailability = async () => {
-      try {
-        const response = await fetch('http://localhost:8000/api/audio/stt/status');
-        const result = await response.json();
-        setSttAvailable(result.available);
-        console.log('STT availability:', result.available ? '✅ Available' : '❌ Not available');
-      } catch (err) {
-        console.log('STT service check failed - voice mode disabled');
-        setSttAvailable(false);
+  // Fetch saved resumes
+  const fetchSavedResumes = useCallback(async () => {
+    setLoadingResumes(true);
+    try {
+      const { data: sd } = await supabase.auth.getSession();
+      const token = sd?.session?.access_token;
+      if (!token) { setLoadingResumes(false); return; }
+      const res = await fetch('http://localhost:8000/api/db/resumes', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedResumes(data.resumes || []);
+        if (data.resumes?.length > 0) setSelectedResumeId(data.resumes[0].id);
       }
-    };
-    
-    checkSTTAvailability();
+    } catch { /* offline */ }
+    finally { setLoadingResumes(false); }
   }, []);
 
-  // Helper: Get auth token (also updates state for voice mode)
+  useEffect(() => { fetchSavedResumes(); }, [fetchSavedResumes]);
+
+  // STT check
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/audio/stt/status');
+        const r = await res.json();
+        setSttAvailable(r.available);
+      } catch { setSttAvailable(false); }
+    })();
+  }, []);
+
   const getAuthToken = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token || null;
+    const { data: { session: s } } = await supabase.auth.getSession();
+    const token = s?.access_token || null;
     setAuthToken(token);
     return token;
   };
 
-  /**
-   * Record an answer for feedback analysis.
-   * Called when user submits or skips a question.
-   * CRITICAL: Includes duplicate check to prevent recording same question twice
-   */
-  const recordAnswer = (answerText: string, isSkipped: boolean = false) => {
+  const recordAnswer = (answerText: string, isSkipped = false) => {
     if (!session?.current_question) return;
-    
-    const question = session.current_question;
-    
-    // DUPLICATE CHECK: Don't record if we already have an answer for this question
+    const q = session.current_question;
     setInterviewAnswers(prev => {
-      const alreadyRecorded = prev.some(a => a.questionId === question.id);
-      if (alreadyRecorded) {
-        console.log('⚠️ Answer already recorded for question', question.id, '- skipping duplicate');
-        return prev;
-      }
-      
-      const answer: InterviewAnswer = {
-        questionId: question.id,
-        questionNumber: session.progress.current,
-        questionText: question.question,
-        category: question.category,
-        difficulty: question.difficulty,
-        answerText: answerText,
-        isSkipped: isSkipped,
-        timestamp: new Date(),
-      };
-      
-      console.log('📝 Answer recorded for feedback:', {
-        questionNumber: answer.questionNumber,
-        category: answer.category,
-        isSkipped: answer.isSkipped,
-        answerLength: answer.answerText.length
-      });
-      
-      return [...prev, answer];
+      if (prev.some(a => a.questionId === q.id)) return prev;
+      return [...prev, {
+        questionId: q.id, questionNumber: session.progress.current,
+        questionText: q.question, category: q.category, difficulty: q.difficulty,
+        answerText, isSkipped, timestamp: new Date(),
+      }];
     });
   };
 
-  // Voice mode: Handle answer submit (reuses existing logic)
-  const handleVoiceAnswerSubmit = async (answerText: string) => {
-    if (!session) return;
-    
-    // Record answer for feedback analysis BEFORE submitting
-    // This ensures we save even if submission fails
-    recordAnswer(answerText, false);
-    
-    // Add candidate's answer to conversation
-    setConversationHistory(prev => [...prev, {
-      role: 'candidate',
-      message: answerText,
-      timestamp: new Date()
-    }]);
-    
-    // NEW: Store evaluation if available
-    const answerIndex = session.progress.current - 1;
-    
-    await handleAnswerSubmission(answerText);
-    
-    // After submission, response might include evaluation
-    // It will be captured in handleAnswerSubmission
-  };
-
-  // Voice mode: Handle skip (reuses existing logic)
-  // NOTE: Do NOT call recordAnswer here - handleSkipQuestion already does it
-  const handleVoiceSkip = async () => {
-    await handleSkipQuestion();
-  };
-
-  // Voice mode: End interview early
-  const handleEndInterviewEarly = async () => {
-    if (!session) return;
-    
-    try {
-      const token = await getAuthToken();
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      const summaryResponse = await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, {
-        method: 'GET',
-        headers
-      });
-      
-      const summaryResult = await summaryResponse.json();
-      
-      if (summaryResult.saved_to_database) {
-        console.log('✅ Interview saved to database! Session ID:', summaryResult.db_session_id);
-      }
-    } catch (err) {
-      console.error('Failed to save interview:', err);
-    }
-    
-    setViewMode('summary');
-  };
-
-  // Shared answer submission logic (used by both text and voice modes)
   const handleAnswerSubmission = async (answerText: string) => {
     if (!session) return;
-
     setIsLoading(true);
     setShowingResponse(true);
-
     try {
-      const response = await fetch('http://localhost:8000/api/session/conversational-answer', {
+      const res = await fetch('http://localhost:8000/api/session/conversational-answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: session.session_id,
-          answer_text: answerText,
-          time_taken_seconds: 0
-        }),
+        body: JSON.stringify({ session_id: session.session_id, answer_text: answerText, time_taken_seconds: 0 }),
       });
-
-      const result = await response.json();
-
+      const result = await res.json();
       if (result.success) {
-        // NEW: Store evaluation if available in the response
         if (result.evaluation) {
-          const questionIndex = session.progress.current - 1;
-          setAnswerEvaluations(prev => new Map(prev).set(questionIndex, result.evaluation));
-          console.log(`📊 Evaluation captured for question ${session.progress.current}`);
+          setAnswerEvaluations(prev => new Map(prev).set(session.progress.current - 1, result.evaluation));
         }
-        
-        // Check if interview is complete
         if (result.is_complete) {
-          // Add final acknowledgment
-          setConversationHistory(prev => [...prev, {
-            role: 'interviewer',
-            message: result.interviewer_response,
-            timestamp: new Date()
-          }]);
-          
-          // Save interview to database by calling summary endpoint
+          setConversationHistory(prev => [...prev, { role: 'interviewer', message: result.interviewer_response, timestamp: new Date() }]);
           setTimeout(async () => {
             try {
               const token = await getAuthToken();
               const headers: HeadersInit = { 'Content-Type': 'application/json' };
-              if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-              }
-              
-              const summaryResponse = await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, {
-                method: 'GET',
-                headers
-              });
-              
-              const summaryResult = await summaryResponse.json();
-              
-              if (summaryResult.saved_to_database) {
-                console.log('✅ Interview saved to database! Session ID:', summaryResult.db_session_id);
-              } else {
-                console.log('ℹ️ Interview completed but not saved (no authentication)');
-              }
-            } catch (err) {
-              console.error('Failed to save interview:', err);
-            }
-            
+              if (token) headers['Authorization'] = `Bearer ${token}`;
+              await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, { method: 'GET', headers });
+            } catch { /* ignore */ }
             setViewMode('summary');
           }, 2000);
         } else {
-          // Combine acknowledgment and next question in single message
-          const nextQuestionText = result.next_question?.question || 'Next question coming up...';
-          const combinedMessage = `${result.interviewer_response}\n\n${nextQuestionText}`;
-          
+          const nextQ = result.next_question?.question || 'Next question coming up...';
+          const msg = `${result.interviewer_response}\n\n${nextQ}`;
           setTimeout(() => {
-            setConversationHistory(prev => [...prev, {
-              role: 'interviewer',
-              message: combinedMessage,
-              timestamp: new Date()
-            }]);
-            
-            setSession({
-              ...session,
-              current_question: result.next_question,
-              progress: result.progress
-            });
+            setConversationHistory(prev => [...prev, { role: 'interviewer', message: msg, timestamp: new Date() }]);
+            setSession({ ...session, current_question: result.next_question, progress: result.progress });
             setShowingResponse(false);
           }, 1000);
         }
       }
-    } catch (err) {
-      setError('Failed to submit answer');
-    } finally {
-      setIsLoading(false);
-    }
+    } catch { setError('Failed to submit answer'); }
+    finally { setIsLoading(false); }
   };
 
-  // Handle Resume Upload & Parse
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && file.type === 'application/pdf') {
-      setSelectedFile(file);
-      setError('');
-    } else {
-      setError('Please select a valid PDF file');
-    }
+  const handleVoiceAnswerSubmit = async (answerText: string) => {
+    if (!session) return;
+    recordAnswer(answerText, false);
+    setConversationHistory(prev => [...prev, { role: 'candidate', message: answerText, timestamp: new Date() }]);
+    await handleAnswerSubmission(answerText);
   };
 
-  const handleParseResume = async () => {
-    if (!selectedFile) return;
+  const handleVoiceSkip = async () => { await handleSkipQuestion(); };
 
-    setIsLoading(true);
+  const handleEndInterviewEarly = async () => {
+    if (!session) return;
     try {
       const token = await getAuthToken();
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch('http://localhost:8000/api/resume/parse', {
-        method: 'POST',
-        headers,
-        body: formData,
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        setParsedData(result.data);
-        setViewMode('job-context');
-        
-        // Log database save status
-        if (result.saved_to_database) {
-          console.log('✅ Resume saved to database with ID:', result.resume_id);
-        } else {
-          console.log('ℹ️ Resume parsed but not saved (no authentication)');
-        }
-      } else {
-        setError(result.error || 'Failed to parse resume');
-      }
-    } catch (err: any) {
-      setError('Failed to parse resume');
-    } finally {
-      setIsLoading(false);
-    }
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, { method: 'GET', headers });
+    } catch { /* ignore */ }
+    setViewMode('summary');
   };
 
-  // Start Interview Session
-  const handleStartInterview = async () => {
-    if (!parsedData || !jobContext.target_role || !jobContext.experience_level || !jobContext.interview_type) {
-      setError('Please fill all job context fields');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const response = await fetch('http://localhost:8000/api/session/create-conversational', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: 'user123', // TODO: Get from auth context
-          resume_data: parsedData,
-          job_context: jobContext,
-          num_questions: 10
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        const openingQuestion = result.opening_question || result.current_question;
-        setSession({
-          session_id: result.session_id,
-          current_question: openingQuestion,
-          progress: { current: 1, total: result.total_questions }
-        });
-        // Reset interview answers for new session
-        setInterviewAnswers([]);
-        // NEW: Reset evaluations for new session
-        setAnswerEvaluations(new Map());
-        // Add opening question to conversation
-        setConversationHistory([{
-          role: 'interviewer',
-          message: openingQuestion.question,
-          timestamp: new Date()
-        }]);
-        setViewMode('interview');
-      } else {
-        setError('Failed to start interview session');
-      }
-    } catch (err) {
-      setError('Failed to start interview');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Skip Question
   const handleSkipQuestion = async () => {
     if (!session) return;
-
-    // Record skipped question for feedback analysis
     recordAnswer('', true);
-
-    // Add skip note to conversation
-    setConversationHistory(prev => [...prev, {
-      role: 'candidate',
-      message: '[Question skipped]',
-      timestamp: new Date()
-    }]);
-
+    setConversationHistory(prev => [...prev, { role: 'candidate', message: '[Question skipped]', timestamp: new Date() }]);
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/session/skip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch('http://localhost:8000/api/session/skip', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: session.session_id }),
       });
-
-      const result = await response.json();
-
+      const result = await res.json();
       if (result.success) {
-        // Check if interview completed
-        const nextQuestion = result.result?.next_question;
-        
-        if (!nextQuestion || result.result?.status === 'completed') {
-          // Save interview to database by calling summary endpoint
+        const nextQ = result.result?.next_question;
+        if (!nextQ || result.result?.status === 'completed') {
           try {
             const token = await getAuthToken();
             const headers: HeadersInit = { 'Content-Type': 'application/json' };
-            if (token) {
-              headers['Authorization'] = `Bearer ${token}`;
-            }
-            
-            const summaryResponse = await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, {
-              method: 'GET',
-              headers
-            });
-            
-            const summaryResult = await summaryResponse.json();
-            
-            if (summaryResult.saved_to_database) {
-              console.log('✅ Interview saved to database! Session ID:', summaryResult.db_session_id);
-            } else {
-              console.log('ℹ️ Interview completed but not saved (no authentication)');
-            }
-          } catch (err) {
-            console.error('Failed to save interview:', err);
-          }
-          
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, { method: 'GET', headers });
+          } catch { /* ignore */ }
           setTimeout(() => setViewMode('summary'), 1000);
         } else {
-          // Combine transition message and next question
-          const nextQuestionText = nextQuestion?.question || 'Next question coming up...';
-          const combinedMessage = `No problem. Let's move on to the next question.\n\n${nextQuestionText}`;
-          
+          const nextQText = nextQ?.question || 'Next question coming up...';
+          const msg = `No problem. Let's move on.\n\n${nextQText}`;
           setTimeout(() => {
-            setConversationHistory(prev => [...prev, {
-              role: 'interviewer',
-              message: combinedMessage,
-              timestamp: new Date()
-            }]);
-            
+            setConversationHistory(prev => [...prev, { role: 'interviewer', message: msg, timestamp: new Date() }]);
             setSession({
-              ...session,
-              current_question: nextQuestion,
-              progress: {
-                current: nextQuestion.question_number || (session.progress.current + 1),
-                total: nextQuestion.total_questions || session.progress.total
-              }
+              ...session, current_question: nextQ,
+              progress: { current: nextQ.question_number || (session.progress.current + 1), total: nextQ.total_questions || session.progress.total },
             });
             setCurrentAnswer('');
           }, 800);
         }
       }
-    } catch (err) {
-      setError('Failed to skip question');
+    } catch { setError('Failed to skip question'); }
+    finally { setIsLoading(false); }
+  };
+
+  // Proceed from resume → job context (silent parsing)
+  const handleProceedToJobContext = async () => {
+    setError('');
+    if (!selectedResumeId && !selectedFile) {
+      setError('Please select a resume or upload a new one.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const token = await getAuthToken();
+      const headers: HeadersInit = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      if (selectedResumeId) {
+        const resumeRes = await fetch('http://localhost:8000/api/db/resumes', { headers: { ...headers } });
+        const resumeData = await resumeRes.json();
+        const fullResume = resumeData.resumes?.find((r: any) => r.id === selectedResumeId);
+        if (fullResume?.parsed_json && Object.keys(fullResume.parsed_json).length > 0) {
+          setParsedData(fullResume.parsed_json);
+        } else {
+          setParsedData({
+            name: fullResume?.file_name?.replace('.pdf', '') || 'Candidate',
+            email: '', phone: '', skills: [], experience: [], projects: [], education: [],
+          });
+        }
+      } else if (selectedFile) {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        const res = await fetch('http://localhost:8000/api/resume/parse', { method: 'POST', headers, body: formData });
+        const result = await res.json();
+        if (result.success) {
+          setParsedData(result.data);
+        } else {
+          setError(result.error || 'Could not read resume.');
+          setIsLoading(false);
+          return;
+        }
+      }
+      setViewMode('job-context');
+    } catch {
+      setError('Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Render based on view mode
+  // Start interview
+  const handleStartInterview = async () => {
+    if (!parsedData || !jobContext.target_role || !jobContext.experience_level || !jobContext.interview_type) {
+      setError('Please fill in all fields to continue.');
+      return;
+    }
+    setIsStarting(true);
+    setError('');
+    try {
+      const token = await getAuthToken();
+      const authHeader: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) authHeader['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('http://localhost:8000/api/session/create-conversational', {
+        method: 'POST', headers: authHeader,
+        body: JSON.stringify({
+          user_id: (await supabase.auth.getUser()).data.user?.id || 'anon',
+          resume_data: parsedData,
+          job_context: jobContext,
+          num_questions: 10,
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        const openingQ = result.opening_question || result.current_question;
+        setSession({ session_id: result.session_id, current_question: openingQ, progress: { current: 1, total: result.total_questions } });
+        setInterviewAnswers([]);
+        setAnswerEvaluations(new Map());
+        setConversationHistory([{ role: 'interviewer', message: openingQ.question, timestamp: new Date() }]);
+        setViewMode('interview');
+      } else {
+        setError('Failed to start interview. Please try again.');
+      }
+    } catch {
+      setError('Failed to start interview.');
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
+  const resetAll = () => {
+    setViewMode('select-resume');
+    setSession(null);
+    setParsedData(null);
+    setSelectedFile(null);
+    setSelectedResumeId(savedResumes[0]?.id || null);
+    setInterviewAnswers([]);
+    setAnswerEvaluations(new Map());
+    setConversationHistory([]);
+    setShowingResponse(false);
+    setJobContext({ target_role: '', experience_level: '', interview_type: '' });
+    setError('');
+  };
+
+  const steps = ['Select Resume', 'Interview Setup', 'AI Interview', 'Summary'];
+  const stepIndex: Record<ViewMode, number> = { 'select-resume': 0, 'job-context': 1, 'interview': 2, 'summary': 3 };
+  const currentStep = stepIndex[viewMode];
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <>
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 0.3; transform: scale(0.8); }
-          50% { opacity: 1; transform: scale(1); }
-        }
-      `}</style>
-      
-      <div className={styles.dashboardContent}>
+    <div className={styles.dashboardContent}>
+      {/* Page header */}
       <div className={styles.welcomeSection}>
-        <h1 className={styles.welcomeTitle}>AI Interview Practice</h1>
-        <p className={styles.welcomeSubtitle}>
-          {viewMode === 'upload' && 'Upload your resume to start'}
-          {viewMode === 'job-context' && 'Tell us about the role you\'re applying for'}
-          {viewMode === 'interview' && 'Have a natural conversation with the AI interviewer'}
-          {viewMode === 'summary' && 'Interview completed'}
-        </p>
+        <h1 className={styles.welcomeTitle}>Interview Lab</h1>
+        <p className={styles.welcomeSubtitle}>Practice with an AI interviewer and get real-time feedback</p>
       </div>
 
-      {/* Upload View */}
-      {viewMode === 'upload' && (
-        <div className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h3>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M14 2H6C4.9 2 4 2.9 4 4v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm2-10h8v2H8v-2zm0 3h8v2H8v-2zm0 3h5v2H8v-2z"/>
-              </svg>
-              Upload Resume
-            </h3>
-          </div>
-          <div style={{ padding: '2rem', textAlign: 'center' }}>
-            <label htmlFor="resume-upload" style={{
-              display: 'inline-block',
-              background: '#f8fafc',
-              border: '2px dashed #cbd5e1',
-              borderRadius: '12px',
-              padding: '3rem',
-              cursor: 'pointer',
-              width: '100%',
-              maxWidth: '500px'
-            }}>
-              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="#64748b">
-                  <path d="M14 2H6C4.9 2 4 2.9 4 4v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm2-10h8v2H8v-2zm0 3h8v2H8v-2zm0 3h5v2H8v-2z"/>
-                </svg>
+      {/* Step progress bar */}
+      <div className={labStyles.stepBar}>
+        {steps.map((s, i) => (
+          <React.Fragment key={s}>
+            <div className={`${labStyles.step} ${i < currentStep ? labStyles.stepDone : ''} ${i === currentStep ? labStyles.stepActive : ''}`}>
+              <div className={labStyles.stepCircle}>
+                {i < currentStep ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
+                ) : (
+                  <span>{i + 1}</span>
+                )}
               </div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                {selectedFile ? selectedFile.name : 'Click to upload your resume'}
-              </div>
-              <div style={{ fontSize: '0.9rem', color: '#64748b' }}>PDF files only, max 10MB</div>
-              <input
-                id="resume-upload"
-                type="file"
-                accept=".pdf"
-                onChange={handleFileSelect}
-                style={{ display: 'none' }}
-              />
-            </label>
-            
-            <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center' }}>
-              {selectedFile && (
-                <button
-                  onClick={handleParseResume}
-                  disabled={isLoading}
-                  style={{
-                    background: isLoading ? '#94a3b8' : '#2563EB',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '1rem 2rem',
-                    fontSize: '1rem',
-                    fontWeight: 600,
-                    cursor: isLoading ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    transition: 'background-color 0.2s ease'
-                  }}
-                >
-                  {isLoading ? (
-                    <>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 6V2l-5 5 5 5V8c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C18.6 17.33 19 15.7 19 14c0-3.87-3.13-7-7-7z"/>
-                        <path d="M6 14c0-3.31 2.69-6 6-6v4l5-5-5-5v4C8.13 6 5 9.13 5 14c0 1.7.4 3.33 1.24 4.26L7.7 16.8C7.25 15.97 7 15.01 7 14z"/>
-                      </svg>
-                      Parsing...
-                    </>
-                  ) : (
-                    <>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-                      </svg>
-                      Parse Resume
-                    </>
-                  )}
-                </button>
-              )}
+              <span className={labStyles.stepLabel}>{s}</span>
             </div>
-            
-            {error && (
-              <div style={{ marginTop: '1rem', color: '#dc2626', background: '#fef2f2', padding: '1rem', borderRadius: '8px' }}>
-                {error}
-              </div>
+            {i < steps.length - 1 && (
+              <div className={`${labStyles.stepLine} ${i < currentStep ? labStyles.stepLineDone : ''}`} />
             )}
-          </div>
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className={labStyles.errorBanner}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" /></svg>
+          {error}
+          <button onClick={() => setError('')} className={labStyles.errorClose}>×</button>
         </div>
       )}
 
-      {/* Job Context View */}
-      {viewMode === 'job-context' && parsedData && (
+      {/* ─── STEP 1: Select Resume ─────────────────────────────────────────── */}
+      {viewMode === 'select-resume' && (
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
             <h3>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-              </svg>
-              Interview Details
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6C4.9 2 4 2.9 4 4v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z" /></svg>
+              Choose Your Resume
             </h3>
           </div>
-          <div style={{ padding: '2rem' }}>
-            <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>
-                  Target Role *
-                </label>
-                <select
-                  value={jobContext.target_role}
-                  onChange={(e) => setJobContext({ ...jobContext, target_role: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    borderRadius: '8px',
-                    border: '2px solid #e2e8f0',
-                    fontSize: '1rem'
-                  }}
-                >
-                  <option value="">Select target role</option>
-                  <option value="Full Stack Developer">Full Stack Developer</option>
-                  <option value="Frontend Developer">Frontend Developer</option>
-                  <option value="Backend Developer">Backend Developer</option>
-                  <option value="Mobile App Developer">Mobile App Developer</option>
-                  <option value="DevOps Engineer">DevOps Engineer</option>
-                  <option value="Data Engineer">Data Engineer</option>
-                  <option value="Machine Learning Engineer">Machine Learning Engineer</option>
-                  <option value="QA Engineer">QA Engineer</option>
-                  <option value="UI/UX Designer">UI/UX Designer</option>
-                  <option value="Product Manager">Product Manager</option>
-                  <option value="Software Architect">Software Architect</option>
-                  <option value="Cloud Engineer">Cloud Engineer</option>
-                </select>
-              </div>
 
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>
-                  Experience Level *
-                </label>
-                <select
-                  value={jobContext.experience_level}
-                  onChange={(e) => setJobContext({ ...jobContext, experience_level: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    borderRadius: '8px',
-                    border: '2px solid #e2e8f0',
-                    fontSize: '1rem'
-                  }}
-                >
-                  <option value="">Select experience level</option>
-                  <option value="Fresher">Fresher</option>
-                  <option value="1-3 years">1-3 years</option>
-                  <option value="3-5 years">3-5 years</option>
-                  <option value="5+ years">5+ years</option>
-                </select>
+          <div className={labStyles.resumeSelectBody}>
+            {loadingResumes ? (
+              <div className={labStyles.resumeSkeletons}>
+                {[1, 2].map(i => <div key={i} className={labStyles.resumeSkeleton} />)}
               </div>
-
-              <div style={{ marginBottom: '2rem' }}>
-                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>
-                  Interview Type *
-                </label>
-                <select
-                  value={jobContext.interview_type}
-                  onChange={(e) => setJobContext({ ...jobContext, interview_type: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    borderRadius: '8px',
-                    border: '2px solid #e2e8f0',
-                    fontSize: '1rem'
-                  }}
-                >
-                  <option value="">Select interview type</option>
-                  <option value="Technical">Technical</option>
-                  <option value="HR">HR/Behavioral</option>
-                  <option value="Mixed">Mixed (Technical + HR)</option>
-                </select>
-              </div>
-
-              {/* Voice Interview Info */}
-              <div style={{
-                marginBottom: '2rem',
-                padding: '1.25rem',
-                background: 'linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%)',
-                border: '2px solid #93c5fd',
-                borderRadius: '16px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-                  <div style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '12px',
-                    background: 'linear-gradient(135deg, #2563EB, #3b82f6)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.5rem',
-                  }}>
-                    🎤
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: '#1e40af' }}>
-                      Voice Interview Mode
-                    </div>
-                    <div style={{ fontSize: '0.875rem', color: '#3b82f6' }}>
-                      Real interview experience with AI
-                    </div>
-                  </div>
+            ) : savedResumes.length > 0 ? (
+              <>
+                <p className={labStyles.resumeSelectHint}>Select a saved resume or upload a new one</p>
+                <div className={labStyles.resumeGrid}>
+                  {savedResumes.map((r, idx) => (
+                    <button
+                      key={r.id}
+                      className={`${labStyles.resumeCard} ${selectedResumeId === r.id ? labStyles.resumeCardSelected : ''}`}
+                      onClick={() => { setSelectedResumeId(r.id); setSelectedFile(null); }}
+                    >
+                      <div className={labStyles.resumeCardIcon}>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6C4.9 2 4 2.9 4 4v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z" /></svg>
+                      </div>
+                      <div className={labStyles.resumeCardInfo}>
+                        <div className={labStyles.resumeCardName}>
+                          {r.file_name}
+                          {idx === 0 && <span className={labStyles.latestTag}>Latest</span>}
+                        </div>
+                        <div className={labStyles.resumeCardMeta}>
+                          {((r.file_size_bytes ?? r.file_size ?? 0) / 1024).toFixed(1)} KB ·{' '}
+                          {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </div>
+                      </div>
+                      {selectedResumeId === r.id && (
+                        <div className={labStyles.resumeCheckmark}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
+                        </div>
+                      )}
+                    </button>
+                  ))}
                 </div>
-                
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(2, 1fr)',
-                  gap: '0.75rem',
-                  fontSize: '0.875rem',
-                  color: '#1e3a5f',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>📹</span> Camera enabled
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>🗣️</span> AI speaks questions
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>🎙️</span> Voice transcription
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>⏱️</span> Auto silence detection
-                  </div>
-                </div>
+              </>
+            ) : (
+              <p className={labStyles.resumeSelectHint}>No saved resumes. Upload one below.</p>
+            )}
 
-                {!sttAvailable && sttAvailable !== null && (
-                  <div style={{
-                    marginTop: '1rem',
-                    padding: '0.75rem',
-                    background: '#fef3c7',
-                    border: '1px solid #fcd34d',
-                    borderRadius: '8px',
-                    fontSize: '0.875rem',
-                    color: '#92400e',
-                  }}>
-                    ⚠️ Speech-to-Text service unavailable. Please ensure the backend is running.
-                  </div>
-                )}
-              </div>
-
-              <button
-                onClick={handleStartInterview}
-                disabled={isLoading || !sttAvailable || !jobContext.target_role || !jobContext.experience_level || !jobContext.interview_type}
-                style={{
-                  width: '100%',
-                  background: (isLoading || !sttAvailable) ? '#94a3b8' : 'linear-gradient(135deg, #2563EB, #1d4ed8)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '12px',
-                  padding: '1.25rem',
-                  fontSize: '1.15rem',
-                  fontWeight: 700,
-                  cursor: (isLoading || !sttAvailable) ? 'not-allowed' : 'pointer',
-                  boxShadow: (isLoading || !sttAvailable) ? 'none' : '0 4px 14px rgba(37, 99, 235, 0.4)',
-                  transition: 'all 0.3s ease',
-                }}
+            {/* Upload new */}
+            <div className={labStyles.uploadZone}>
+              <label
+                className={`${labStyles.uploadCard} ${selectedFile ? labStyles.uploadCardSelected : ''}`}
+                onClick={() => setSelectedResumeId(null)}
               >
-                {isLoading ? '🔄 Starting Interview...' : '🎤 Start Voice Interview'}
+                <div className={labStyles.uploadIcon}>
+                  {selectedFile ? (
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="#2563EB"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
+                  ) : (
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="#94a3b8"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" /></svg>
+                  )}
+                </div>
+                <div className={labStyles.uploadText}>
+                  {selectedFile ? (
+                    <><strong>{selectedFile.name}</strong><span>Click to change</span></>
+                  ) : (
+                    <><strong>Upload a new resume</strong><span>PDF · max 10 MB</span></>
+                  )}
+                </div>
+                <input
+                  type="file" accept=".pdf" style={{ display: 'none' }}
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f?.type === 'application/pdf') { setSelectedFile(f); setSelectedResumeId(null); setError(''); }
+                    else setError('Please select a PDF file.');
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className={labStyles.actionRow}>
+              <button
+                className={labStyles.primaryBtn}
+                disabled={isLoading || (!selectedResumeId && !selectedFile)}
+                onClick={handleProceedToJobContext}
+              >
+                {isLoading ? (
+                  <><span className={labStyles.spinner} />Preparing…</>
+                ) : (
+                  <>Continue to Setup <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" /></svg></>
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Interview View - Voice Mode Only */}
+
+      {/* STEP 2: Interview Setup — wizard layout */}
+      {viewMode === 'job-context' && parsedData && (
+        <div className={styles.section} style={{ padding: 0, overflow: 'hidden' }}>
+          {/* Wizard header */}
+          <div className={labStyles.wizardHeader}>
+            <div className={labStyles.wizardHeaderLeft}>
+              <button className={labStyles.backBtn} onClick={() => setViewMode('select-resume')}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                Back
+              </button>
+              <div>
+                <h3 className={labStyles.wizardTitle}>Interview Setup</h3>
+                <p className={labStyles.wizardSub}>Configure your session — takes 30 seconds</p>
+              </div>
+            </div>
+            {sttAvailable === false && (
+              <div className={labStyles.sttBanner}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                Voice system unavailable
+              </div>
+            )}
+          </div>
+
+          <div className={labStyles.wizardBody}>
+            {/* SECTION A — Target Role */}
+            <div className={labStyles.wizardSection}>
+              <div className={labStyles.wizardSectionLabel}>
+                <span className={labStyles.wizardSectionNum}>1</span>
+                Target Role
+                <span className={labStyles.wizardRequired}>*</span>
+              </div>
+              <div className={labStyles.roleCardGrid}>
+                {ROLES.map(role => (
+                  <button
+                    key={role}
+                    className={`${labStyles.roleCard2} ${jobContext.target_role === role ? labStyles.roleCard2Active : ''}`}
+                    onClick={() => setJobContext(j => ({ ...j, target_role: role }))}
+                  >
+                    <div className={labStyles.roleCard2Icon}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d={ROLE_ICONS[role] || 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z'}/>
+                      </svg>
+                    </div>
+                    <span className={labStyles.roleCard2Label}>{role}</span>
+                    {jobContext.target_role === role && (
+                      <div className={labStyles.roleCard2Check}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* SECTION B — Experience */}
+            <div className={labStyles.wizardSection}>
+              <div className={labStyles.wizardSectionLabel}>
+                <span className={labStyles.wizardSectionNum}>2</span>
+                Experience Level
+                <span className={labStyles.wizardRequired}>*</span>
+              </div>
+              <div className={labStyles.expRow}>
+                {EXPERIENCE_LEVELS.map((lv, idx) => (
+                  <button
+                    key={lv.value}
+                    className={`${labStyles.expBtn} ${jobContext.experience_level === lv.value ? labStyles.expBtnActive : ''}`}
+                    onClick={() => setJobContext(j => ({ ...j, experience_level: lv.value }))}
+                  >
+                    <div className={labStyles.expBtnBar}>
+                      {Array.from({ length: 4 }, (_, i) => (
+                        <div key={i} className={`${labStyles.expBar} ${i <= idx ? labStyles.expBarFill : ''}`} />
+                      ))}
+                    </div>
+                    <span>{lv.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* SECTION C — Interview Type */}
+            <div className={labStyles.wizardSection}>
+              <div className={labStyles.wizardSectionLabel}>
+                <span className={labStyles.wizardSectionNum}>3</span>
+                Interview Type
+                <span className={labStyles.wizardRequired}>*</span>
+              </div>
+              <div className={labStyles.typeCardRow}>
+                {INTERVIEW_TYPES.map(t => (
+                  <button
+                    key={t.value}
+                    className={`${labStyles.typeCard} ${jobContext.interview_type === t.value ? labStyles.typeCardActive : ''}`}
+                    style={jobContext.interview_type === t.value ? { borderColor: t.color, background: `${t.color}12` } : {}}
+                    onClick={() => setJobContext(j => ({ ...j, interview_type: t.value }))}
+                  >
+                    <div className={labStyles.typeCardIcon} style={{ background: jobContext.interview_type === t.value ? `${t.color}22` : '#f1f5f9' }}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill={jobContext.interview_type === t.value ? t.color : '#94a3b8'}>
+                        <path d={t.icon}/>
+                      </svg>
+                    </div>
+                    <div className={labStyles.typeCardLabel} style={{ color: jobContext.interview_type === t.value ? t.color : '#1e293b' }}>
+                      {t.label}
+                    </div>
+                    <div className={labStyles.typeCardDesc}>{t.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Wizard footer — preview + start */}
+          <div className={labStyles.wizardFooter}>
+            <div className={labStyles.wizardPreview}>
+              {jobContext.target_role || jobContext.experience_level || jobContext.interview_type ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="#64748b"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                  <span>Session:</span>
+                  {jobContext.target_role && <span className={labStyles.previewTag}>{jobContext.target_role}</span>}
+                  {jobContext.experience_level && <span className={labStyles.previewTag}>{jobContext.experience_level}</span>}
+                  {jobContext.interview_type && <span className={labStyles.previewTag}>{jobContext.interview_type}</span>}
+                </>
+              ) : (
+                <span style={{ color: '#94a3b8' }}>Select options above to continue</span>
+              )}
+            </div>
+            <button
+              className={labStyles.startBtn}
+              disabled={isStarting || sttAvailable === false || !jobContext.target_role || !jobContext.experience_level || !jobContext.interview_type}
+              onClick={handleStartInterview}
+            >
+              {isStarting ? (
+                <><span className={labStyles.spinner} />Starting...</>
+              ) : (
+                <>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 0h-2c0 2.76-2.24 5-5 5S6 7.76 6 5H4c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92z"/>
+                  </svg>
+                  Start Interview
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── STEP 3: AI Interview (Voice — fullscreen) ───────────────────── */}
       {viewMode === 'interview' && session && session.current_question && (
         <div className={styles.section} style={{ padding: 0, overflow: 'hidden' }}>
           <VoiceInterview
@@ -825,118 +649,48 @@ const PracticeTestsMain: React.FC = () => {
         </div>
       )}
 
-      {/* Summary View */}
+      {/* ─── STEP 4: Summary ──────────────────────────────────────────────── */}
       {viewMode === 'summary' && (
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
             <h3>🎉 Interview Complete!</h3>
           </div>
-          <div style={{ padding: '2rem', textAlign: 'center' }}>
-            <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>
-              <svg width="64" height="64" viewBox="0 0 24 24" fill="#22c55e">
-                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-              </svg>
+          <div className={labStyles.summaryBody}>
+            <div className={labStyles.summaryIcon}>
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="#22c55e"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
             </div>
-            <h2 style={{ marginBottom: '0.5rem' }}>Great job completing the interview!</h2>
-            <p style={{ color: '#64748b' }}>Review your detailed analysis in the summary section</p>
-            
-            {/* Answer Summary for Feedback Analysis */}
+            <h2 className={labStyles.summaryTitle}>Great job!</h2>
+            <p className={labStyles.summarySubtitle}>
+              {interviewAnswers.filter((a: InterviewAnswer) => !a.isSkipped).length} answered ·{' '}
+              {interviewAnswers.filter((a: InterviewAnswer) => a.isSkipped).length} skipped
+            </p>
+            <p className={labStyles.summaryNote}>Your session has been saved. View full results in <strong>My Interviews</strong>.</p>
+
             {interviewAnswers.length > 0 && (
-              <div style={{ 
-                marginTop: '2rem', 
-                padding: '1.5rem',
-                background: '#f8fafc',
-                borderRadius: '12px',
-                textAlign: 'left',
-                maxHeight: '400px',
-                overflowY: 'auto'
-              }}>
-                <h4 style={{ marginBottom: '1rem', color: '#1e293b' }}>
-                  📝 Your Answers & Evaluations ({interviewAnswers.filter(a => !a.isSkipped).length} answered, {interviewAnswers.filter(a => a.isSkipped).length} skipped)
-                </h4>
-                {interviewAnswers.map((answer, idx) => {
-                  const evaluation = answerEvaluations.get(idx);
-                  
+              <div className={labStyles.summaryAnswers}>
+                <p className={labStyles.summaryAnswersTitle}>Session Summary</p>
+                {interviewAnswers.map((ans: InterviewAnswer, idx: number) => {
+                  const ev = answerEvaluations.get(idx);
                   return (
-                    <div 
-                      key={idx}
-                      style={{
-                        padding: '1rem',
-                        marginBottom: '0.75rem',
-                        background: answer.isSkipped ? '#fef3c7' : '#ffffff',
-                        borderRadius: '8px',
-                        border: `1px solid ${answer.isSkipped ? '#fcd34d' : '#e2e8f0'}`
-                      }}
-                    >
-                      <div style={{ 
-                        fontSize: '0.75rem', 
-                        color: '#64748b', 
-                        marginBottom: '0.5rem',
-                        display: 'flex',
-                        gap: '0.75rem',
-                        alignItems: 'center'
-                      }}>
-                        <span>Q{answer.questionNumber}</span>
-                        <span style={{ 
-                          background: '#e2e8f0', 
-                          padding: '0.125rem 0.5rem', 
-                          borderRadius: '4px',
-                          fontSize: '0.7rem'
-                        }}>
-                          {answer.category}
-                        </span>
-                        <span style={{ 
-                          background: answer.difficulty === 'hard' ? '#fee2e2' : answer.difficulty === 'medium' ? '#fef3c7' : '#dcfce7',
-                          padding: '0.125rem 0.5rem', 
-                          borderRadius: '4px',
-                          fontSize: '0.7rem'
-                        }}>
-                          {answer.difficulty}
-                        </span>
-                        {/* NEW: Show evaluation score if available */}
-                        {evaluation && !answer.isSkipped && (
-                          <span style={{ 
-                            background: `${evaluation.average_score >= 7 ? '#dcfce7' : evaluation.average_score >= 5 ? '#fef3c7' : '#fee2e2'}`,
-                            padding: '0.125rem 0.5rem', 
-                            borderRadius: '4px',
-                            fontSize: '0.7rem',
-                            fontWeight: '600'
-                          }}>
-                            ⭐ {evaluation.average_score.toFixed(1)}/10
+                    <div key={idx} className={`${labStyles.summaryCard} ${ans.isSkipped ? labStyles.summaryCardSkipped : ''}`}>
+                      <div className={labStyles.summaryCardTop}>
+                        <span className={labStyles.qNum}>Q{ans.questionNumber}</span>
+                        <span className={labStyles.qCat}>{ans.category}</span>
+                        <span className={labStyles.qDiff}>{ans.difficulty}</span>
+                        {ev && !ans.isSkipped && (
+                          <span className={labStyles.qScore} style={{ color: ev.average_score >= 7 ? '#16a34a' : ev.average_score >= 5 ? '#d97706' : '#dc2626' }}>
+                            ⭐ {ev.average_score?.toFixed(1)}/10
                           </span>
                         )}
+                        {ans.isSkipped && <span className={labStyles.skippedTag}>Skipped</span>}
                       </div>
-                      <div style={{ fontWeight: 500, color: '#1e293b', marginBottom: '0.5rem' }}>
-                        {answer.questionText}
-                      </div>
-                      <div style={{ color: '#475569', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                        {answer.isSkipped ? (
-                          <em style={{ color: '#d97706' }}>⏭️ Skipped</em>
-                        ) : (
-                          answer.answerText || <em style={{ color: '#94a3b8' }}>No answer recorded</em>
-                        )}
-                      </div>
-                      {/* NEW: Show feedback if evaluation is available */}
-                      {evaluation && !answer.isSkipped && (
-                        <div style={{
-                          marginTop: '0.75rem',
-                          paddingTop: '0.75rem',
-                          borderTop: '1px solid #e2e8f0',
-                          fontSize: '0.85rem'
-                        }}>
-                          <div style={{ color: '#475569', marginBottom: '0.5rem' }}>
-                            <strong>💭 Feedback:</strong> {evaluation.feedback}
-                          </div>
-                          {evaluation.strengths && evaluation.strengths.length > 0 && (
-                            <div style={{ color: '#16a34a', marginBottom: '0.25rem', fontSize: '0.8rem' }}>
-                              <strong>✨ Strengths:</strong> {evaluation.strengths.slice(0, 2).join(', ')}
-                            </div>
-                          )}
-                          {evaluation.weak_areas && evaluation.weak_areas.length > 0 && (
-                            <div style={{ color: '#dc2626', fontSize: '0.8rem' }}>
-                              <strong>📈 Focus Areas:</strong> {evaluation.weak_areas.join(', ')}
-                            </div>
-                          )}
+                      <p className={labStyles.summaryQText}>{ans.questionText}</p>
+                      {!ans.isSkipped && <p className={labStyles.summaryAText}>{ans.answerText || <em>No answer</em>}</p>}
+                      {ev && !ans.isSkipped && (
+                        <div className={labStyles.evalBox}>
+                          <p className={labStyles.evalFeedback}>{ev.feedback}</p>
+                          {ev.strengths?.length > 0 && <p className={labStyles.evalStrengths}>✨ {ev.strengths.slice(0, 2).join(', ')}</p>}
+                          {ev.weak_areas?.length > 0 && <p className={labStyles.evalWeak}>📈 Focus: {ev.weak_areas.join(', ')}</p>}
                         </div>
                       )}
                     </div>
@@ -944,37 +698,16 @@ const PracticeTestsMain: React.FC = () => {
                 })}
               </div>
             )}
-            
-            <button
-              onClick={() => {
-                setViewMode('upload');
-                setSession(null);
-                setParsedData(null);
-                setSelectedFile(null);
-                setInterviewAnswers([]);
-                setAnswerEvaluations(new Map());  // NEW: Clear evaluations
-                setConversationHistory([]);
-                setShowingResponse(false);
-              }}
-              style={{
-                marginTop: '2rem',
-                background: '#2563EB',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '1rem 2rem',
-                fontSize: '1rem',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
+
+            <button className={labStyles.primaryBtn} onClick={resetAll} style={{ marginTop: '1.5rem' }}>
               Start New Interview
             </button>
           </div>
         </div>
       )}
+
+      <div ref={conversationEndRef} />
     </div>
-    </>
   );
 };
 

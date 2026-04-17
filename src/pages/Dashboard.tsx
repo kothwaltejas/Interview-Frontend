@@ -14,6 +14,7 @@ import RecentInterviews from '../components/dashboard/RecentInterviews';
 import AIPerformanceMetrics from '../components/dashboard/AIPerformanceMetrics';
 import QuickActions from '../components/dashboard/QuickActions';
 import { ApiService, DashboardData } from '../services/api';
+import { DashboardHomeSkeleton } from '../components/SkeletonLoader';
 import styles from './DashboardHome.module.css';
 
 const Dashboard: React.FC = () => {
@@ -29,10 +30,14 @@ const Dashboard: React.FC = () => {
     if (hour < 12) setGreeting('Good morning');
     else if (hour < 17) setGreeting('Good afternoon');
     else setGreeting('Good evening');
-
-    // Fetch dashboard data when component mounts
-    fetchDashboardData();
   }, []);
+
+  // Refetch every time user visits the dashboard tab
+  useEffect(() => {
+    if (currentPage === 'dashboard') {
+      fetchDashboardData();
+    }
+  }, [currentPage]);
 
   const fetchDashboardData = async () => {
     try {
@@ -81,10 +86,7 @@ const Dashboard: React.FC = () => {
           return (
             <div className={styles.dashboardWrapper}>
               <div className={styles.dashboardContainer}>
-                <div className={styles.loadingState}>
-                  <div className={styles.loadingSpinner}></div>
-                  <p>Loading dashboard...</p>
-                </div>
+                <DashboardHomeSkeleton />
               </div>
             </div>
           );

@@ -60,7 +60,10 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 export class ApiService {
   
   // Fetch user statistics for dashboard cards
-  static async getUserStatistics(): Promise<UserStatistics> {
+  // Backend field mapping:
+  //   average_overall_score   → average_score
+  //   total_time_spent_seconds → total_practice_time_hours
+  static async getUserStatistics(allSessions?: RecentInterview[]): Promise<UserStatistics> {
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(`${API_BASE_URL}/api/db/statistics`, {
@@ -73,16 +76,51 @@ export class ApiService {
       }
 
       const data = await response.json();
-      
-      // Ensure we handle null/undefined values from backend
-      const stats = data.statistics || {};
+      const raw = data.statistics || {};
+
+      // Backend stores different field names — map them here
+      const avgScore = raw.average_score ?? raw.average_overall_score ?? 0;
+      const practiceHours = raw.total_practice_time_hours ??
+        (raw.total_time_spent_seconds ? Math.round(raw.total_time_spent_seconds / 3600 * 10) / 10 : 0);
+
+      // Derive completed_this_month and score_change from sessions if provided
+      const now = new Date();
+      const thisMonth = now.getMonth();
+      const thisYear = now.getFullYear();
+      let completedThisMonth = raw.completed_this_month ?? 0;
+      let scoreChange = raw.score_change ?? 0;
+
+      if (allSessions && allSessions.length > 0) {
+        // Compute this month count from sessions
+        const thisMonthSessions = allSessions.filter(s => {
+          if (!s.completed_at) return false;
+          const d = new Date(s.completed_at);
+          return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+        });
+        completedThisMonth = thisMonthSessions.length;
+
+        // Last month scores vs this month scores
+        const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1;
+        const lastMonthYear = thisMonth === 0 ? thisYear - 1 : thisYear;
+        const lastMonthSessions = allSessions.filter(s => {
+          if (!s.completed_at) return false;
+          const d = new Date(s.completed_at);
+          return d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
+        });
+        const thisMonthAvg = thisMonthSessions.reduce((sum, s) => sum + (s.score || 0), 0) /
+          (thisMonthSessions.length || 1);
+        const lastMonthAvg = lastMonthSessions.reduce((sum, s) => sum + (s.score || 0), 0) /
+          (lastMonthSessions.length || 1);
+        scoreChange = lastMonthSessions.length > 0 ? Math.round((thisMonthAvg - lastMonthAvg) * 10) / 10 : 0;
+      }
+
       return {
-        total_interviews: stats.total_interviews || 0,
-        average_score: stats.average_score || 0,
-        total_practice_time_hours: stats.total_practice_time_hours || 0,
-        improvement_areas: stats.improvement_areas || 0,
-        completed_this_month: stats.completed_this_month || 0,
-        score_change: stats.score_change || 0
+        total_interviews: raw.total_interviews || allSessions?.length || 0,
+        average_score: typeof avgScore === 'number' ? avgScore : Number(avgScore) || 0,
+        total_practice_time_hours: practiceHours,
+        improvement_areas: raw.improvement_areas ?? 0,
+        completed_this_month: completedThisMonth,
+        score_change: scoreChange
       };
     } catch (error) {
       console.error('Error fetching user statistics:', error);
@@ -90,7 +128,30 @@ export class ApiService {
     }
   }
 
-  // Fetch recent interview sessions
+  // Fetch ALL interview sessions (no limit) for accurate stats
+  static async getAllSessions(): Promise<RecentInterview[]> {
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_BASE_URL}/api/db/sessions?limit=500`, {
+        method: 'GET',
+        headers
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return (data.sessions || []).map((s: any) => ({
+        id: s.id,
+        job_role: s.target_role,
+        score: s.average_score || 0,
+        completed_at: s.completed_at,
+        duration: Math.round((s.duration_seconds || 0) / 60),
+        status: s.performance_tier || 'completed'
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  // Fetch recent interview sessions (for display)
   static async getRecentInterviews(limit = 5): Promise<RecentInterview[]> {
     try {
       const headers = await getAuthHeaders();
@@ -125,22 +186,19 @@ export class ApiService {
   // Fetch dashboard data (all data needed for dashboard)
   static async getDashboardData(): Promise<DashboardData> {
     try {
-      const [statistics, recentInterviews] = await Promise.all([
-        this.getUserStatistics(),
-        this.getRecentInterviews()
+      // Fetch all sessions first so we can derive accurate statistics
+      const [allSessions, recentInterviews] = await Promise.all([
+        this.getAllSessions(),
+        this.getRecentInterviews(5)
       ]);
 
-      // Generate chart data from recent interviews
-      const chartData = this.generateChartData(recentInterviews);
+      const statistics = await this.getUserStatistics(allSessions);
 
-      // Fix total_interviews count by using actual interview data
-      const correctedStatistics = {
-        ...statistics,
-        total_interviews: recentInterviews.length  // Use actual count from database records
-      };
+      // Generate chart data from all sessions for accuracy
+      const chartData = this.generateChartData(allSessions);
 
       return {
-        statistics: correctedStatistics,
+        statistics,
         recentInterviews,
         chartData
       };
