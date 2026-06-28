@@ -290,7 +290,12 @@ const Interviews: React.FC = () => {
             {detailModal.session.overall_feedback && (
               <div className={iStyles.feedbackBox}>
                 <p className={iStyles.feedbackLabel}>Overall Feedback</p>
-                <p className={iStyles.feedbackText}>{detailModal.session.overall_feedback}</p>
+                <p className={iStyles.feedbackText}>{
+                  typeof detailModal.session.overall_feedback === 'string'
+                    ? detailModal.session.overall_feedback
+                    : (detailModal.session.overall_feedback as any)?.summary
+                      || JSON.stringify(detailModal.session.overall_feedback)
+                }</p>
               </div>
             )}
 
@@ -327,13 +332,23 @@ const Interviews: React.FC = () => {
                       {!ans.is_skipped && ans.answer_text && (
                         <p className={iStyles.answerText}>{ans.answer_text}</p>
                       )}
-                      {ans.evaluation_summary && !ans.is_skipped && (
-                        <p className={iStyles.evalSummary}>{
-                          typeof ans.evaluation_summary === 'string'
-                            ? ans.evaluation_summary
-                            : JSON.stringify(ans.evaluation_summary)
-                        }</p>
-                      )}
+                      {ans.evaluation_summary && !ans.is_skipped && (() => {
+                        const ev = typeof ans.evaluation_summary === 'string'
+                          ? (() => { try { return JSON.parse(ans.evaluation_summary); } catch { return null; } })()
+                          : ans.evaluation_summary as any;
+                        if (!ev) return null;
+                        return (
+                          <div className={iStyles.evalSummary}>
+                            {ev.feedback && <p className={iStyles.evalFeedback}>{ev.feedback}</p>}
+                            {ev.strengths?.length > 0 && (
+                              <p className={iStyles.evalStrengths}>Strengths: {ev.strengths.join(', ')}</p>
+                            )}
+                            {ev.weak_areas?.length > 0 && (
+                              <p className={iStyles.evalWeak}>Improve: {ev.weak_areas.join(', ')}</p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>

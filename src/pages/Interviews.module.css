@@ -197,7 +197,7 @@
   padding: 1rem;
 }
 .detailModal {
-  background: white; border-radius: 10px;
+  background: white; border-radius: 8px;
   width: min(820px, calc(100vw - 2rem));
   max-height: 88vh; overflow-y: auto;
   display: flex; flex-direction: column;

@@ -127,29 +127,31 @@ const Dashboard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Stats Cards Section */}
+              {/* Stats Cards */}
               <div className={styles.statsContainer}>
                 <div className={styles.statsGrid}>
                   <div className={styles.statCard}>
                     <div className={styles.statCardHeader}>
                       <div className={`${styles.statIcon} ${styles.iconBlue}`}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 1c-2.76 0-5 2.24-5 5v5c0 2.76 2.24 5 5 5s5-2.24 5-5V6c0-2.76-2.24-5-5-5zm3 10c0 1.66-1.34 3-3 3s-3-1.34-3-3V6c0-1.66 1.34-3 3-3s3 1.34 3 3v5zm-3 6c-4 0-7.3-3.14-7.83-7H1v2c0 4.97 4.03 9 9 9h4c4.97 0 9-4.03 9-9v-2h-3.17C19.3 13.86 16 17 12 17z"/>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                          <rect x="8" y="2" width="8" height="4" rx="1"/>
+                          <path d="M9 14l2 2 4-4"/>
                         </svg>
                       </div>
                       <p className={styles.statLabel}>Total Interviews</p>
                     </div>
                     <div className={styles.statCardContent}>
                       <p className={styles.statValue}>{dashboardData?.statistics.total_interviews || 0}</p>
-                      <p className={styles.statSubtext}>{dashboardData?.statistics.completed_this_month || 0} completed this month</p>
+                      <p className={styles.statSubtext}>{dashboardData?.statistics.completed_this_month || 0} this month</p>
                     </div>
                   </div>
 
                   <div className={styles.statCard}>
                     <div className={styles.statCardHeader}>
                       <div className={`${styles.statIcon} ${styles.iconGreen}`}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M22 21H2v-2h2V7h4v12h4V3h4v16h4V9h4v10h2v2z"/>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
                         </svg>
                       </div>
                       <p className={styles.statLabel}>Average Score</p>
@@ -168,26 +170,29 @@ const Dashboard: React.FC = () => {
                   <div className={styles.statCard}>
                     <div className={styles.statCardHeader}>
                       <div className={`${styles.statIcon} ${styles.iconYellow}`}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10"/>
+                          <polyline points="12 6 12 12 16 14"/>
                         </svg>
                       </div>
                       <p className={styles.statLabel}>Practice Time</p>
                     </div>
                     <div className={styles.statCardContent}>
                       <p className={styles.statValue}>{dashboardData?.statistics.total_practice_time_hours || 0}h</p>
-                      <p className={styles.statSubtext}>This month</p>
+                      <p className={styles.statSubtext}>Total hours</p>
                     </div>
                   </div>
 
                   <div className={styles.statCard}>
                     <div className={styles.statCardHeader}>
                       <div className={`${styles.statIcon} ${styles.iconRed}`}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                          <line x1="12" y1="9" x2="12" y2="13"/>
+                          <line x1="12" y1="17" x2="12.01" y2="17"/>
                         </svg>
                       </div>
-                      <p className={styles.statLabel}>Improvement Areas</p>
+                      <p className={styles.statLabel}>Focus Areas</p>
                     </div>
                     <div className={styles.statCardContent}>
                       <p className={styles.statValue}>{dashboardData?.statistics.improvement_areas || 0}</p>
