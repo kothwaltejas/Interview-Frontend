@@ -118,7 +118,7 @@ const Interviews: React.FC = () => {
       const token = await authService.getValidAccessToken();
 
       const res = await fetch(`${API_BASE_URL}/api/db/sessions?limit=200`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
       });
       if (!res.ok) throw new Error('Failed to load interviews');
       const data = await res.json();
@@ -161,7 +161,7 @@ const Interviews: React.FC = () => {
       const token = await authService.getValidAccessToken();
 
       const res = await fetch(`${API_BASE_URL}/api/db/sessions/${session.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
       });
       if (!res.ok) throw new Error('Failed to load session');
       const data = await res.json();

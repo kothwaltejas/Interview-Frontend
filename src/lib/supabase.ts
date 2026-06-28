@@ -92,7 +92,8 @@ export const authService = {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
+              'Authorization': `Bearer ${token}`,
+              'ngrok-skip-browser-warning': 'true',
             },
             body: JSON.stringify({
               full_name: userData.fullName,
@@ -119,7 +120,8 @@ export const authService = {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'ngrok-skip-browser-warning': 'true',
               },
               body: JSON.stringify({
                 file_name: userData.resume.name,

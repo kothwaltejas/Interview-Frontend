@@ -69,7 +69,7 @@ const Resume: React.FC = () => {
       const token = await authService.getValidAccessToken();
 
       const res = await fetch(`${API_BASE_URL}/api/db/resumes`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -99,7 +99,7 @@ const Resume: React.FC = () => {
 
       const res = await fetch(`${API_BASE_URL}/api/db/resumes/upload`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
         body: formData,
       });
       if (!res.ok) {
@@ -135,7 +135,7 @@ const Resume: React.FC = () => {
 
       const res = await fetch(`${API_BASE_URL}/api/db/resumes/${resumeId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);

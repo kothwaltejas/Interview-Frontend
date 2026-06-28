@@ -134,7 +134,7 @@ const PracticeTestsMain: React.FC = () => {
     try {
       const token = await authService.getValidAccessToken();
       const res = await fetch(`${API_BASE_URL}/api/db/resumes`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
       });
       if (res.ok) {
         const data = await res.json();
@@ -151,7 +151,7 @@ const PracticeTestsMain: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/audio/stt/status`);
+        const res = await fetch(`${API_BASE_URL}/api/audio/stt/status`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
         const r = await res.json();
         setSttAvailable(r.available);
       } catch { setSttAvailable(false); }
@@ -184,7 +184,7 @@ const PracticeTestsMain: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/session/conversational-answer`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
         body: JSON.stringify({
           session_id: session.session_id,
           answer_text: answerText,
@@ -211,7 +211,7 @@ const PracticeTestsMain: React.FC = () => {
             setViewMode('summary');
             try {
               const token = await getAuthToken();
-              const headers: HeadersInit = { 'Content-Type': 'application/json' };
+              const headers: HeadersInit = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
               if (token) headers['Authorization'] = `Bearer ${token}`;
               await fetch(`${API_BASE_URL}/api/session/${session.session_id}/summary`, { method: 'GET', headers });
             } catch { /* ignore */ }
@@ -276,7 +276,7 @@ const PracticeTestsMain: React.FC = () => {
       setPendingNextQuestion(null);
       try {
         const token = await getAuthToken();
-        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+        const headers: HeadersInit = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
         await fetch(`${API_BASE_URL}/api/session/${session.session_id}/summary`, { method: 'GET', headers });
       } catch { /* ignore */ }
@@ -306,7 +306,7 @@ const PracticeTestsMain: React.FC = () => {
     if (!session) return;
     try {
       const token = await getAuthToken();
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      const headers: HeadersInit = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch(`${API_BASE_URL}/api/session/${session.session_id}/summary`, { method: 'GET', headers });
     } catch { /* ignore */ }
@@ -322,7 +322,7 @@ const PracticeTestsMain: React.FC = () => {
     setIsLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/api/session/skip`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
         body: JSON.stringify({ session_id: session.session_id }),
       });
       const result = await res.json();
@@ -331,7 +331,7 @@ const PracticeTestsMain: React.FC = () => {
         if (!nextQ || result.result?.status === 'completed') {
           try {
             const token = await getAuthToken();
-            const headers: HeadersInit = { 'Content-Type': 'application/json' };
+            const headers: HeadersInit = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
             if (token) headers['Authorization'] = `Bearer ${token}`;
             await fetch(`${API_BASE_URL}/api/session/${session.session_id}/summary`, { method: 'GET', headers });
           } catch { /* ignore */ }
@@ -409,7 +409,7 @@ const PracticeTestsMain: React.FC = () => {
     setError('');
     try {
       const token = await getAuthToken();
-      const authHeader: Record<string, string> = { 'Content-Type': 'application/json' };
+      const authHeader: Record<string, string> = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
       if (token) authHeader['Authorization'] = `Bearer ${token}`;
       const res = await fetch(`${API_BASE_URL}/api/session/create-conversational`, {
         method: 'POST', headers: authHeader,

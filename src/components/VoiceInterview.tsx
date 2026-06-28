@@ -708,6 +708,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
       const response = await fetch(`${API_BASE_URL}/api/audio/stt`, {
         method: 'POST',
         body: formData,
+        headers: { 'ngrok-skip-browser-warning': 'true' },
       });
 
       if (!response.ok) {
