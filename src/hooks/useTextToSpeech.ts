@@ -79,6 +79,14 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
   const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Stable refs for callbacks — avoids stale closures in utterance event handlers
+  const onStartRef = useRef(onStart);
+  const onEndRef = useRef(onEnd);
+  const onErrorRef = useRef(onError);
+  useEffect(() => { onStartRef.current = onStart; }, [onStart]);
+  useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+
   // Ref for current utterance
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const hasInitialized = useRef(false);
@@ -217,12 +225,11 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
    * Handles queue management and natural speech patterns
    */
   const speak = useCallback((text: string) => {
-    // Check window.speechSynthesis directly (don't rely on state due to closures)
     if (!window.speechSynthesis) {
       const errorMsg = 'TTS not supported in this browser';
       console.error('❌', errorMsg);
       setError(errorMsg);
-      if (onError) onError(errorMsg);
+      if (onErrorRef.current) onErrorRef.current(errorMsg);
       return;
     }
 
@@ -233,51 +240,37 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
 
     console.log('🗣️ TTS speak() called with:', text.substring(0, 50) + '...');
 
-    // Cancel any ongoing speech
     window.speechSynthesis.cancel();
 
     try {
-      // Create new utterance
       const utterance = new SpeechSynthesisUtterance(text);
       utteranceRef.current = utterance;
 
-      // Configure utterance
       utterance.rate = rate;
       utterance.pitch = pitch;
       utterance.volume = TTS_CONFIG.volume;
       utterance.lang = TTS_CONFIG.lang;
 
-      // Set voice if available
       if (selectedVoice) {
         utterance.voice = selectedVoice;
       }
 
-      // Event handlers
       utterance.onstart = () => {
         setIsSpeaking(true);
         setError(null);
-        if (onStart) onStart();
-      };
-
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        if (onEnd) onEnd();
+        if (onStartRef.current) onStartRef.current();
       };
 
       utterance.onerror = (event) => {
         setIsSpeaking(false);
-        // Ignore 'interrupted' errors (happens when we cancel)
         if (event.error !== 'interrupted') {
           const errorMsg = `Speech error: ${event.error}`;
           setError(errorMsg);
-          if (onError) onError(errorMsg);
+          if (onErrorRef.current) onErrorRef.current(errorMsg);
         }
       };
 
-      // Chrome bug workaround: Speech can get stuck
-      // Reset synthesis if it gets stuck
       utterance.onpause = () => {
-        // Resume after brief pause to prevent stuck state
         setTimeout(() => {
           if (window.speechSynthesis.paused) {
             window.speechSynthesis.resume();
@@ -285,11 +278,8 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         }, 100);
       };
 
-      // Speak!
       window.speechSynthesis.speak(utterance);
 
-      // Chrome bug workaround: Long texts can stop
-      // Keep synthesis alive by periodic resume
       const keepAlive = setInterval(() => {
         if (!window.speechSynthesis.speaking) {
           clearInterval(keepAlive);
@@ -299,20 +289,19 @@ export const useTextToSpeech = (options: UseTextToSpeechOptions = {}): UseTextTo
         }
       }, 10000);
 
-      // Clear interval when speech ends
       utterance.onend = () => {
         clearInterval(keepAlive);
         setIsSpeaking(false);
-        if (onEnd) onEnd();
+        if (onEndRef.current) onEndRef.current();
       };
 
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'TTS failed';
       console.error('❌ TTS error:', errorMsg);
       setError(errorMsg);
-      if (onError) onError(errorMsg);
+      if (onErrorRef.current) onErrorRef.current(errorMsg);
     }
-  }, [onEnd, onError, onStart, pitch, rate, selectedVoice]);
+  }, [pitch, rate, selectedVoice]);
 
   /**
    * Stop speaking immediately

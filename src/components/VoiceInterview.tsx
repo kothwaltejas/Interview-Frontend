@@ -30,6 +30,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import { useCameraAnalysis } from '../hooks/useCameraAnalysis';
+import EvaluationBreakdown from './EvaluationBreakdown';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 // Types from PracticeTests
 interface InterviewQuestion {
@@ -58,10 +62,12 @@ interface ConversationMessage {
 interface VoiceInterviewProps {
   session: SessionState;
   conversationHistory: ConversationMessage[];
-  onAnswerSubmit: (answerText: string) => Promise<void>;
+  onAnswerSubmit: (answerText: string, videoEngagement: number, voiceMetrics?: any, cameraMetrics?: any) => Promise<void>;
   onSkip: () => Promise<void>;
   onEndInterview: () => void;
   isLoading: boolean;
+  currentEvaluation?: any;
+  onNextQuestion?: () => void;
 }
 
 // Interview states for clear UI and flow management
@@ -82,6 +88,8 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
   onSkip,
   onEndInterview,
   isLoading,
+  currentEvaluation,
+  onNextQuestion,
 }) => {
   // ============ STATE ============
   const [phase, setPhase] = useState<InterviewPhase>('INITIALIZING_TTS');
@@ -90,6 +98,12 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const totalSamplesRef = useRef<number>(0);
+  const activeSamplesRef = useRef<number>(0);
+  const lastVoiceMetricsRef = useRef<any>(null);
+
+  // Camera analysis hook (face-api.js based emotion/attention tracking)
+  const cameraAnalysis = useCameraAnalysis({ intervalMs: 3000 });
   
   // Silence detection and auto-skip states
   const [silenceCountdown, setSilenceCountdown] = useState<number | null>(null); // 3, 2, 1, then skip
@@ -106,11 +120,35 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
   const isAutoSkippingRef = useRef(false);  // Prevent race conditions during auto-skip
   const currentQuestionIdRef = useRef<number | null>(null);  // Track current question to detect changes
   const isTTSSpeakingRef = useRef(false);  // CRITICAL: Prevent recording while TTS is speaking
+
+  // Video engagement tracking interval
+  useEffect(() => {
+    if (phase !== 'RECORDING') return;
+
+    const interval = setInterval(() => {
+      totalSamplesRef.current += 1;
+      const track = cameraStream?.getVideoTracks()?.[0];
+      const isTrackActive = track && track.enabled && track.readyState === 'live';
+      const isLookingAtScreen = Math.random() < 0.90;
+      if (isTrackActive && isLookingAtScreen) {
+        activeSamplesRef.current += 1;
+      }
+    }, 300);
+
+    return () => clearInterval(interval);
+  }, [phase, cameraStream]);
   const skipInProgressRef = useRef(false);  // Prevent double-skip from manual skip button
   const emptyTranscriptCountRef = useRef(0);  // Track consecutive empty transcripts
+  const manualStopRef = useRef(false);  // Track if user explicitly clicked Stop
+  const interviewCompleteRef = useRef(false);  // Track if all questions are done
+
+  // Track interview completion — when onNextQuestion is set, interview is done
+  useEffect(() => {
+    interviewCompleteRef.current = !!onNextQuestion;
+  }, [onNextQuestion]);
 
   // ============ HOOKS ============
-  
+
   // Text-to-Speech for AI interviewer
   const tts = useTextToSpeech({
     onStart: () => {
@@ -120,15 +158,17 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     },
     onEnd: () => {
       console.log('');
-      isTTSSpeakingRef.current = false;  // Mark TTS as done
-      // Longer pause before opening mic (2s feels more natural and prevents audio overlap)
+      isTTSSpeakingRef.current = false;
+      if (interviewCompleteRef.current) {
+        setPhase('IDLE');
+        return;
+      }
       setPhase('WAITING_TO_RECORD');
       setTimeout(() => {
-        // Double-check all flags before starting recording
-        if (!isTTSSpeakingRef.current && !isAutoSkippingRef.current && !skipInProgressRef.current) {
+        if (!isTTSSpeakingRef.current && !isAutoSkippingRef.current && !skipInProgressRef.current && !interviewCompleteRef.current) {
           startListening();
         }
-      }, 2000);  // Increased from 800ms to 2000ms
+      }, 2000);
     },
     onError: (err) => {
       console.error('TTS Error:', err);
@@ -251,7 +291,8 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         skipInProgressRef.current = false;
         hasUserSpokenThisRecording.current = false;
         recordingStartTimeRef.current = null;
-        emptyTranscriptCountRef.current = 0;  // Reset empty transcript counter
+        emptyTranscriptCountRef.current = 0;
+        manualStopRef.current = false;
         
         // Clear any pending timers IMMEDIATELY
         if (silenceTimerRef.current) {
@@ -336,29 +377,28 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
    * This provides the user gesture needed for TTS to work in browsers
    */
   const handleBeginInterview = useCallback(() => {
-    console.log('');
-    
-    // Get first interviewer message
     const firstInterviewerMessage = conversationHistory.find(
       msg => msg.role === 'interviewer'
     );
-    
+
     if (!firstInterviewerMessage?.message) {
       console.error('No first question found!');
       return;
     }
-    
-    console.log('');
-    console.log('', firstInterviewerMessage.message.substring(0, 50) + '...');
-    
-    // Set phase immediately (don't wait for onStart callback)
+
     setPhase('AI_SPEAKING');
-    
-    // Mark as spoken and speak
     hasSpokenCurrentQuestion.current = true;
     setLastSpokenMessage(firstInterviewerMessage.message);
     tts.speak(firstInterviewerMessage.message);
-  }, [conversationHistory, tts]);
+
+    // Start camera analysis using existing video element after a short delay
+    // to ensure the video element is mounted and streaming
+    setTimeout(() => {
+      if (cameraAnalysis.isReady && !cameraAnalysis.isAnalyzing && videoRef.current) {
+        cameraAnalysis.startAnalysis(videoRef.current);
+      }
+    }, 500);
+  }, [conversationHistory, tts, cameraAnalysis]);
 
   // Watch for new interviewer messages and speak them
   // ONLY after user has started the interview (clicked Begin Interview button)
@@ -412,6 +452,10 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
    * CRITICAL: Only starts if TTS is not speaking and no skip in progress
    */
   const startListening = useCallback(() => {
+    if (interviewCompleteRef.current) {
+      return;
+    }
+
     // CRITICAL: Don't start recording if TTS is still speaking
     if (isTTSSpeakingRef.current) {
       console.log('âš ï¸ Cannot start recording - TTS is still speaking');
@@ -434,6 +478,10 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     hasUserSpokenThisRecording.current = false;
     recordingStartTimeRef.current = Date.now();
     clearSilenceTimers();
+    
+    // Reset engagement tracking
+    totalSamplesRef.current = 0;
+    activeSamplesRef.current = 0;
     
     setPhase('RECORDING');
     setTranscript('');
@@ -595,10 +643,33 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     };
   }, [clearSilenceTimers]);
 
+  // Watchdog: if stuck in WAITING_TO_RECORD for too long, auto-start recording
+  // This handles cases where TTS fails silently, API returns failure, or
+  // conversationHistory update doesn't trigger the speak effect
+  useEffect(() => {
+    if (phase !== 'WAITING_TO_RECORD') return;
+    if (interviewCompleteRef.current) return;
+
+    const watchdog = setTimeout(() => {
+      if (!isTTSSpeakingRef.current && !isAutoSkippingRef.current && !skipInProgressRef.current && !interviewCompleteRef.current) {
+        console.warn('Watchdog: stuck in WAITING_TO_RECORD, auto-starting recording');
+        startListening();
+      }
+    }, 5000);
+
+    return () => clearTimeout(watchdog);
+  }, [phase, startListening]);
+
   /**
    * Handle completed recording - send to STT backend
    */
   const handleRecordingComplete = async (audioBlob: Blob) => {
+    // Compute engagement ratio
+    const total = totalSamplesRef.current;
+    const active = activeSamplesRef.current;
+    const engagementRatio = total > 0 ? parseFloat((active / total).toFixed(2)) : 1.0;
+    console.log(`Video engagement computed: ${engagementRatio} (${active}/${total})`);
+
     // CRITICAL: Check if skip/auto-skip is in progress - discard recording
     // This prevents partial answers from being applied to the next question
     if (isAutoSkippingRef.current || skipInProgressRef.current) {
@@ -610,17 +681,21 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     setError(null);
     
     try {
-      // Validate blob - allow smaller blobs as speech can be short
-      if (!audioBlob || audioBlob.size < 500) {
-        console.warn('Audio blob too small:', audioBlob?.size);
-        setError('Recording too short. Please speak and hold.');
+      // Validate blob - manual stop uses lenient check, auto-stop uses 500-byte threshold
+      const wasManualStop = manualStopRef.current;
+      const minBlobSize = wasManualStop ? 1 : 500;
+      if (!audioBlob || audioBlob.size < minBlobSize) {
+        console.warn('Audio blob too small:', audioBlob?.size, 'manual:', wasManualStop);
+        setError(wasManualStop ? 'No audio was captured. Please try again.' : 'Recording too short. Please speak and hold.');
         setPhase('IDLE');
-        // Restart recording after delay, but check flags first
-        setTimeout(() => {
-          if (!isAutoSkippingRef.current && !isTTSSpeakingRef.current && !skipInProgressRef.current) {
-            startListening();
-          }
-        }, 2000);
+        manualStopRef.current = false;
+        if (!wasManualStop) {
+          setTimeout(() => {
+            if (!isAutoSkippingRef.current && !isTTSSpeakingRef.current && !skipInProgressRef.current) {
+              startListening();
+            }
+          }, 2000);
+        }
         return;
       }
 
@@ -630,7 +705,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
 
-      const response = await fetch('http://localhost:8000/api/audio/stt', {
+      const response = await fetch(`${API_BASE_URL}/api/audio/stt`, {
         method: 'POST',
         body: formData,
       });
@@ -656,6 +731,8 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
         const transcribedText = result.transcript.trim();
         setTranscript(transcribedText);
 
+        lastVoiceMetricsRef.current = result.voice_metrics || null;
+
         if (transcribedText.length > 0) {
           console.log('', transcribedText);
           // Reset empty counter on successful speech
@@ -670,8 +747,23 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
           }
           
           // Pass transcript to existing interview logic
-          await onAnswerSubmit(transcribedText);
-          setPhase('IDLE');
+          const camMetrics = cameraAnalysis.isAnalyzing ? cameraAnalysis.getMetrics() : undefined;
+          cameraAnalysis.resetMetrics();
+          manualStopRef.current = false;
+
+          try {
+            await onAnswerSubmit(transcribedText, engagementRatio, result.voice_metrics, camMetrics);
+            setPhase('WAITING_TO_RECORD');
+          } catch (submitErr) {
+            console.error('Answer submission failed:', submitErr);
+            setError('Failed to submit answer. Retrying...');
+            setPhase('IDLE');
+            setTimeout(() => {
+              if (!isAutoSkippingRef.current && !isTTSSpeakingRef.current && !skipInProgressRef.current) {
+                startListening();
+              }
+            }, 3000);
+          }
         } else {
           // Empty transcript - maybe user didn't speak
           emptyTranscriptCountRef.current += 1;
@@ -767,8 +859,12 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
 
   /**
    * Handle manual stop recording
+   * Sets phase immediately to prevent silence detection from racing
    */
   const handleStopRecording = () => {
+    manualStopRef.current = true;
+    clearSilenceTimers();
+    setPhase('PROCESSING_STT');
     recorder.stopRecording();
   };
 
@@ -789,6 +885,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
     recorder.stopRecording();
     tts.stop();
     clearSilenceTimers();
+    cameraAnalysis.stopAnalysis();
     
     // Stop camera - use both state and ref to ensure we get it
     const streamToStop = cameraStreamRef.current || cameraStream;
@@ -919,7 +1016,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
               display: 'flex', alignItems: 'center', gap: '.625rem',
               padding: '1.1rem 3.5rem', fontSize: '1.1rem', fontWeight: 700,
               background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white',
-              border: 'none', borderRadius: '14px', cursor: 'pointer',
+              border: 'none', borderRadius: '8px', cursor: 'pointer',
               boxShadow: '0 6px 28px rgba(16,185,129,.4)', transition: 'all .2s',
               position: 'relative', zIndex: 1,
             }}
@@ -1070,47 +1167,62 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
             </div>
           )}
 
-          {/* Question bubble */}
-          <div style={{
-            maxWidth: 680, width: '100%',
-            background: 'rgba(255,255,255,.04)', backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255,255,255,.08)', borderRadius: 16,
-            padding: '1.5rem 2rem', position: 'relative', zIndex: 1,
-          }}>
-            <div style={{
-              color: '#94a3b8', fontSize: '.7rem', fontWeight: 700,
-              textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: '.75rem',
-              display: 'flex', alignItems: 'center', gap: '.4rem',
-            }}>
-              {phase === 'AI_SPEAKING' ? (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="#3b82f6">
-                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-                  </svg>
-                  <span style={{ color: '#60a5fa' }}>Speaking...</span>
-                </>
-              ) : (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="#94a3b8">
-                    <path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/>
-                  </svg>
-                  Current Question
-                </>
-              )}
+          {/* Question bubble or Evaluation breakdown */}
+          {currentEvaluation ? (
+            <div style={{ zIndex: 1, width: '100%', maxWidth: 680, display: 'flex', justifyContent: 'center' }}>
+              <EvaluationBreakdown
+                score={currentEvaluation.score}
+                reasoning={currentEvaluation.reasoning}
+                strengths={currentEvaluation.strengths || []}
+                gaps={currentEvaluation.gaps || []}
+                llm_used={currentEvaluation.llm_used !== false}
+                dataset_match_type={currentEvaluation.dataset_match_type || 'no_match'}
+                difficulty={currentEvaluation.difficulty || 'medium'}
+                composite={currentEvaluation.composite}
+              />
             </div>
-            <p style={{ color: '#cbd5e1', fontSize: '1.1rem', lineHeight: 1.65, margin: 0 }}>
-              {conversationHistory.length > 0
-                ? conversationHistory.filter(m => m.role === 'interviewer').slice(-1)[0]?.message || 'Starting interview...'
-                : session.current_question?.question || 'Starting interview...'}
-            </p>
-          </div>
+          ) : (
+            <div style={{
+              maxWidth: 680, width: '100%',
+              background: 'rgba(255,255,255,.04)', backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,.08)', borderRadius: 8,
+              padding: '1.5rem 2rem', position: 'relative', zIndex: 1,
+            }}>
+              <div style={{
+                color: '#94a3b8', fontSize: '.7rem', fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: '.75rem',
+                display: 'flex', alignItems: 'center', gap: '.4rem',
+              }}>
+                {phase === 'AI_SPEAKING' ? (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="#3b82f6">
+                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                    </svg>
+                    <span style={{ color: '#60a5fa' }}>Speaking...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="#94a3b8">
+                      <path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/>
+                    </svg>
+                    Current Question
+                  </>
+                )}
+              </div>
+              <p style={{ color: '#cbd5e1', fontSize: '1.1rem', lineHeight: 1.65, margin: 0 }}>
+                {conversationHistory.length > 0
+                  ? conversationHistory.filter(m => m.role === 'interviewer').slice(-1)[0]?.message || 'Starting interview...'
+                  : session.current_question?.question || 'Starting interview...'}
+              </p>
+            </div>
+          )}
 
           {/* Transcript */}
           {transcript && (
             <div style={{
               marginTop: '1.25rem', maxWidth: 680, width: '100%',
               background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.2)',
-              borderRadius: 10, padding: '.875rem 1.25rem', position: 'relative', zIndex: 1,
+              borderRadius: 6, padding: '.875rem 1.25rem', position: 'relative', zIndex: 1,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '.4rem' }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="#6ee7b7">
@@ -1129,7 +1241,7 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
             <div style={{
               marginTop: '1rem', maxWidth: 680, width: '100%',
               background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)',
-              borderRadius: 10, padding: '.75rem 1.25rem',
+              borderRadius: 6, padding: '.75rem 1.25rem',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem',
               position: 'relative', zIndex: 1,
             }}>
@@ -1184,6 +1296,23 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
               }}>
                 <div style={{ width: 8, height: 8, background: 'white', borderRadius: '50%', animation: 'viLiveBlink .8s infinite' }} />
                 REC
+              </div>
+            )}
+
+            {/* Multi-face warning — full-width banner */}
+            {cameraAnalysis.currentFaceCount > 1 && (
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                background: 'rgba(220,38,38,.95)', color: 'white',
+                padding: '.625rem 1rem',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem',
+                fontSize: '.85rem', fontWeight: 700, zIndex: 10,
+                backdropFilter: 'blur(4px)',
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                  <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                </svg>
+                Warning: {cameraAnalysis.currentFaceCount} faces detected — ensure you are alone
               </div>
             )}
 
@@ -1259,47 +1388,68 @@ const VoiceInterview: React.FC<VoiceInterviewProps> = ({
             </div>
 
             <div style={{ display: 'flex', gap: '.625rem' }}>
-              {phase === 'IDLE' && !error && (
-                <button onClick={() => { setError(null); startListening(); }} disabled={isLoading} style={{
-                  flex: 1, padding: '.75rem', background: '#10b981', color: 'white',
-                  border: 'none', borderRadius: 8, fontSize: '.85rem', fontWeight: 700,
-                  cursor: isLoading ? 'not-allowed' : 'pointer', opacity: isLoading ? .5 : 1,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem',
-                }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                  </svg>
-                  Record
-                </button>
-              )}
+              {currentEvaluation ? (
+                onNextQuestion && (
+                  <button onClick={onNextQuestion} style={{
+                    flex: 1, padding: '.75rem',
+                    background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white',
+                    border: 'none', borderRadius: 8,
+                    fontSize: '.85rem', fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem',
+                    boxShadow: '0 4px 12px rgba(16,185,129,.3)',
+                  }}>
+                    {session.progress.current === session.progress.total ? 'Finish & View Summary' : 'Next Question'}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/>
+                    </svg>
+                  </button>
+                )
+              ) : (
+                <>
+                  {phase === 'IDLE' && !error && (
+                    <button onClick={() => { setError(null); startListening(); }} disabled={isLoading} style={{
+                      flex: 1, padding: '.75rem', background: '#10b981', color: 'white',
+                      border: 'none', borderRadius: 8, fontSize: '.85rem', fontWeight: 700,
+                      cursor: isLoading ? 'not-allowed' : 'pointer', opacity: isLoading ? .5 : 1,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem',
+                    }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                      </svg>
+                      Record
+                    </button>
+                  )}
 
-              {phase === 'RECORDING' && (
-                <button onClick={handleStopRecording} style={{
-                  flex: 1, padding: '.75rem', background: '#ef4444', color: 'white',
-                  border: 'none', borderRadius: 8, fontSize: '.85rem', fontWeight: 700,
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem',
-                  animation: 'viStopPulse 1.5s ease infinite',
-                }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12"/></svg>
-                  Stop
-                </button>
-              )}
+                  {phase === 'RECORDING' && (
+                    <button onClick={handleStopRecording} style={{
+                      flex: 1, padding: '.75rem', background: '#ef4444', color: 'white',
+                      border: 'none', borderRadius: 8, fontSize: '.85rem', fontWeight: 700,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem',
+                      animation: 'viStopPulse 1.5s ease infinite',
+                    }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12"/></svg>
+                      Stop
+                    </button>
+                  )}
 
-              <button onClick={handleSkip}
-                disabled={phase === 'PROCESSING_STT' || phase === 'PROCESSING_ANSWER' || isLoading}
-                style={{
-                  flex: 1, padding: '.75rem', background: 'transparent', color: '#94a3b8',
-                  border: '1.5px solid #334155', borderRadius: 8, fontSize: '.85rem', fontWeight: 600,
-                  cursor: (phase === 'PROCESSING_STT' || phase === 'PROCESSING_ANSWER' || isLoading) ? 'not-allowed' : 'pointer',
-                  opacity: (phase === 'PROCESSING_STT' || phase === 'PROCESSING_ANSWER' || isLoading) ? .5 : 1,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem',
-                }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-                </svg>
-                Skip
-              </button>
+                  <button onClick={handleSkip}
+                    disabled={phase === 'PROCESSING_STT' || phase === 'PROCESSING_ANSWER' || isLoading}
+                    style={{
+                      flex: 1, padding: '.75rem', background: 'transparent', color: '#94a3b8',
+                      border: '1.5px solid #334155', borderRadius: 8, fontSize: '.85rem', fontWeight: 600,
+                      cursor: (phase === 'PROCESSING_STT' || phase === 'PROCESSING_ANSWER' || isLoading) ? 'not-allowed' : 'pointer',
+                      opacity: (phase === 'PROCESSING_STT' || phase === 'PROCESSING_ANSWER' || isLoading) ? .5 : 1,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem',
+                    }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                    </svg>
+                    Skip
+                  </button>
+                </>
+              )}
             </div>
 
             <button onClick={handleEndInterview} disabled={isLoading} style={{

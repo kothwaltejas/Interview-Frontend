@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { authService, supabase } from '../lib/supabase';
 import styles from './Dashboard.module.css';
 import resumeStyles from './Resume.module.css';
 import { ResumeSkeleton } from '../components/SkeletonLoader';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 interface ResumeItem {
   id: string;
@@ -64,18 +66,19 @@ const Resume: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-      if (!token) { setError('Not authenticated.'); setIsLoading(false); return; }
+      const token = await authService.getValidAccessToken();
 
-      const res = await fetch('http://localhost:8000/api/db/resumes', {
+      const res = await fetch(`${API_BASE_URL}/api/db/resumes`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error('Failed to fetch resumes');
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || body?.message || 'Failed to fetch resumes');
+      }
       const data = await res.json();
       setResumes(data.resumes || []);
     } catch (err) {
-      setError('Failed to load resumes. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to load resumes. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -89,14 +92,12 @@ const Resume: React.FC = () => {
     setIsUploading(true);
     setError(null);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-      if (!token) { setError('Not authenticated.'); return; }
+      const token = await authService.getValidAccessToken();
 
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await fetch('http://localhost:8000/api/db/resumes/upload', {
+      const res = await fetch(`${API_BASE_URL}/api/db/resumes/upload`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -130,15 +131,16 @@ const Resume: React.FC = () => {
     if (viewModal.resume?.id === resumeId) setViewModal({ open: false, resume: null });
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-      if (!token) { setError('Not authenticated'); return; }
+      const token = await authService.getValidAccessToken();
 
-      const res = await fetch(`http://localhost:8000/api/db/resumes/${resumeId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/db/resumes/${resumeId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error('Delete failed');
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || body?.message || 'Delete failed');
+      }
       showSuccess('Resume deleted successfully.');
       await fetchResumes();
     } catch {

@@ -32,7 +32,7 @@
 /* ─── Error banner ─── */
 .errorBanner {
   display: flex; align-items: center; gap: .6rem;
-  padding: .875rem 1.25rem; border-radius: 10px;
+  padding: .875rem 1.25rem; border-radius: 6px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
   font-size: .9rem; font-weight: 500; margin-bottom: 1.25rem;
 }
@@ -197,7 +197,7 @@
   padding: 1rem;
 }
 .detailModal {
-  background: white; border-radius: 18px;
+  background: white; border-radius: 10px;
   width: min(820px, calc(100vw - 2rem));
   max-height: 88vh; overflow-y: auto;
   display: flex; flex-direction: column;
@@ -242,10 +242,10 @@
 .answersHeading { font-size: .85rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #64748b; margin: 0 0 .875rem; }
 .noAnswers { color: #94a3b8; font-size: .875rem; }
 .answersLoading { display: flex; flex-direction: column; gap: .75rem; }
-.answerSkeletonCard { background: #f8fafc; border-radius: 10px; padding: 1rem; }
+.answerSkeletonCard { background: #f8fafc; border-radius: 6px; padding: 1rem; }
 .answersList { display: flex; flex-direction: column; gap: .75rem; }
 .answerCard {
-  border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 1rem;
+  border: 1.5px solid #e2e8f0; border-radius: 6px; padding: 1rem;
   background: #f8fafc;
 }
 .answerSkipped { border-color: #fde68a; background: #fffbeb; opacity: .8; }

@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { authService } from '../lib/supabase';
 import styles from './Dashboard.module.css';
 import iStyles from './Interviews.module.css';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface InterviewSession {
@@ -113,11 +115,9 @@ const Interviews: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const { data: sd } = await supabase.auth.getSession();
-      const token = sd?.session?.access_token;
-      if (!token) throw new Error('Not authenticated');
+      const token = await authService.getValidAccessToken();
 
-      const res = await fetch('http://localhost:8000/api/db/sessions?limit=200', {
+      const res = await fetch(`${API_BASE_URL}/api/db/sessions?limit=200`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Failed to load interviews');
@@ -158,11 +158,9 @@ const Interviews: React.FC = () => {
   const openDetail = async (session: InterviewSession) => {
     setDetailModal({ open: true, session, answers: [], loadingAnswers: true });
     try {
-      const { data: sd } = await supabase.auth.getSession();
-      const token = sd?.session?.access_token;
-      if (!token) throw new Error('Not authenticated');
+      const token = await authService.getValidAccessToken();
 
-      const res = await fetch(`http://localhost:8000/api/db/sessions/${session.id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/db/sessions/${session.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Failed to load session');

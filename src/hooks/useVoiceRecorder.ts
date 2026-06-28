@@ -60,6 +60,16 @@ export const useVoiceRecorder = (options: UseVoiceRecorderOptions = {}): UseVoic
   const [error, setError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
 
+  // Stable refs for callbacks — avoids stale closures in MediaRecorder.onstop
+  // Without these, the onstop handler captures the callback from the render
+  // when startRecording() was called, missing all subsequent prop/state updates
+  const onRecordingCompleteRef = useRef(onRecordingComplete);
+  const onSilenceDetectedRef = useRef(onSilenceDetected);
+  const onErrorRef = useRef(onError);
+  useEffect(() => { onRecordingCompleteRef.current = onRecordingComplete; }, [onRecordingComplete]);
+  useEffect(() => { onSilenceDetectedRef.current = onSilenceDetected; }, [onSilenceDetected]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+
   // Refs for cleanup and persistence across renders
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -216,7 +226,7 @@ export const useVoiceRecorder = (options: UseVoiceRecorderOptions = {}): UseVoic
         }
       };
 
-      // Handle recording stop
+      // Handle recording stop — uses refs to always call the latest callbacks
       mediaRecorder.onstop = () => {
         setIsProcessing(true);
 
@@ -224,10 +234,10 @@ export const useVoiceRecorder = (options: UseVoiceRecorderOptions = {}): UseVoic
         const blob = new Blob(chunksRef.current, { type: mimeType });
         console.log('🎤 Created audio blob:', blob.size, 'bytes, type:', blob.type);
         setAudioBlob(blob);
-        
-        // Trigger callback
-        if (onRecordingComplete) {
-          onRecordingComplete(blob);
+
+        // Trigger callback via ref (always latest version)
+        if (onRecordingCompleteRef.current) {
+          onRecordingCompleteRef.current(blob);
         }
 
         setIsProcessing(false);
@@ -238,7 +248,7 @@ export const useVoiceRecorder = (options: UseVoiceRecorderOptions = {}): UseVoic
       mediaRecorder.onerror = () => {
         const errorMessage = 'Recording error occurred';
         setError(errorMessage);
-        if (onError) onError(errorMessage);
+        if (onErrorRef.current) onErrorRef.current(errorMessage);
         cleanup();
       };
 
@@ -272,7 +282,7 @@ export const useVoiceRecorder = (options: UseVoiceRecorderOptions = {}): UseVoic
             } else if (Date.now() - silenceStartRef.current >= silenceDuration) {
               // Silence duration exceeded - stop recording
               console.log('🔇 Silence detected - stopping recording after', recordingDuration, 'ms');
-              if (onSilenceDetected) onSilenceDetected();
+              if (onSilenceDetectedRef.current) onSilenceDetectedRef.current();
               stopRecording();
               return;
             }
@@ -289,10 +299,10 @@ export const useVoiceRecorder = (options: UseVoiceRecorderOptions = {}): UseVoic
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to start recording';
       setError(errorMessage);
-      if (onError) onError(errorMessage);
+      if (onErrorRef.current) onErrorRef.current(errorMessage);
       cleanup();
     }
-  }, [autoStopOnSilence, cleanup, getAudioLevel, isSilent, onError, onRecordingComplete, onSilenceDetected, silenceDuration]);
+  }, [autoStopOnSilence, cleanup, getAudioLevel, isSilent, silenceDuration]);
 
   /**
    * Stop recording manually

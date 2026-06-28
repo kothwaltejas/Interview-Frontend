@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import styles from './Dashboard.module.css';
 import labStyles from './PracticeTests.module.css';
-import { supabase } from '../lib/supabase';
+import { authService, supabase } from '../lib/supabase';
 import VoiceInterview from '../components/VoiceInterview';
+import EvaluationBreakdown from '../components/EvaluationBreakdown';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface ParsedResumeData {
@@ -20,7 +23,27 @@ interface SessionState {
   current_question: InterviewQuestion | null;
   progress: { current: number; total: number };
 }
-interface Evaluation { feedback: string; score: number; follow_up_question?: string; }
+interface Evaluation {
+  average_score: number;
+  feedback: string;
+  strengths?: string[];
+  weaknesses?: string[];
+  weak_areas?: string[];
+  score_confidence?: 'high' | 'medium' | 'low';
+  difficulty?: string;
+  metadata?: {
+    fallback?: boolean;
+    dataset_match?: boolean;
+    strong_match?: boolean;
+    similarity_score?: number;
+  };
+  scores?: {
+    technical_accuracy?: number;
+    clarity?: number;
+    communication?: number;
+    completeness?: number;
+  };
+}
 interface ConversationMessage { role: 'interviewer' | 'candidate'; message: string; timestamp: Date; }
 interface InterviewAnswer {
   questionId: number; questionNumber: number; questionText: string;
@@ -87,6 +110,12 @@ const PracticeTestsMain: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_showingResponse, setShowingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentEvaluation, setCurrentEvaluation] = useState<any | null>(null);
+  const [pendingNextQuestion, setPendingNextQuestion] = useState<{
+    nextQuestion: any;
+    progress: any;
+    msg: string;
+  } | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
 
@@ -103,10 +132,8 @@ const PracticeTestsMain: React.FC = () => {
   const fetchSavedResumes = useCallback(async () => {
     setLoadingResumes(true);
     try {
-      const { data: sd } = await supabase.auth.getSession();
-      const token = sd?.session?.access_token;
-      if (!token) { setLoadingResumes(false); return; }
-      const res = await fetch('http://localhost:8000/api/db/resumes', {
+      const token = await authService.getValidAccessToken();
+      const res = await fetch(`${API_BASE_URL}/api/db/resumes`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -124,7 +151,7 @@ const PracticeTestsMain: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/audio/stt/status');
+        const res = await fetch(`${API_BASE_URL}/api/audio/stt/status`);
         const r = await res.json();
         setSttAvailable(r.available);
       } catch { setSttAvailable(false); }
@@ -132,8 +159,7 @@ const PracticeTestsMain: React.FC = () => {
   }, []);
 
   const getAuthToken = async () => {
-    const { data: { session: s } } = await supabase.auth.getSession();
-    const token = s?.access_token || null;
+    const token = await authService.getValidAccessToken().catch(() => null);
     setAuthToken(token);
     return token;
   };
@@ -151,15 +177,22 @@ const PracticeTestsMain: React.FC = () => {
     });
   };
 
-  const handleAnswerSubmission = async (answerText: string) => {
+  const handleAnswerSubmission = async (answerText: string, videoEngagement?: number, voiceMetrics?: any, cameraMetrics?: any) => {
     if (!session) return;
     setIsLoading(true);
     setShowingResponse(true);
     try {
-      const res = await fetch('http://localhost:8000/api/session/conversational-answer', {
+      const res = await fetch(`${API_BASE_URL}/api/session/conversational-answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: session.session_id, answer_text: answerText, time_taken_seconds: 0 }),
+        body: JSON.stringify({
+          session_id: session.session_id,
+          answer_text: answerText,
+          time_taken_seconds: 0,
+          video_engagement: videoEngagement !== undefined ? videoEngagement : 1.0,
+          voice_metrics: voiceMetrics || null,
+          camera_metrics: cameraMetrics || null,
+        }),
       });
       const result = await res.json();
       if (result.success) {
@@ -167,35 +200,104 @@ const PracticeTestsMain: React.FC = () => {
           setAnswerEvaluations(prev => new Map(prev).set(session.progress.current - 1, result.evaluation));
         }
         if (result.is_complete) {
+          if (result.evaluation) {
+            setCurrentEvaluation(result.evaluation);
+          }
           setConversationHistory(prev => [...prev, { role: 'interviewer', message: result.interviewer_response, timestamp: new Date() }]);
+
           setTimeout(async () => {
+            setCurrentEvaluation(null);
+            setPendingNextQuestion(null);
+            setViewMode('summary');
             try {
               const token = await getAuthToken();
               const headers: HeadersInit = { 'Content-Type': 'application/json' };
               if (token) headers['Authorization'] = `Bearer ${token}`;
-              await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, { method: 'GET', headers });
+              await fetch(`${API_BASE_URL}/api/session/${session.session_id}/summary`, { method: 'GET', headers });
             } catch { /* ignore */ }
-            setViewMode('summary');
-          }, 2000);
+          }, 3000);
         } else {
           const nextQ = result.next_question?.question || 'Next question coming up...';
           const msg = `${result.interviewer_response}\n\n${nextQ}`;
+
           setTimeout(() => {
-            setConversationHistory(prev => [...prev, { role: 'interviewer', message: msg, timestamp: new Date() }]);
-            setSession({ ...session, current_question: result.next_question, progress: result.progress });
-            setShowingResponse(false);
-          }, 1000);
+            try {
+              setConversationHistory(prev => [...prev, { role: 'interviewer', message: msg, timestamp: new Date() }]);
+              setSession(prev => prev ? {
+                ...prev,
+                current_question: result.next_question,
+                progress: result.progress
+              } : prev);
+              setCurrentEvaluation(null);
+              setShowingResponse(false);
+              setPendingNextQuestion(null);
+            } catch (err) {
+              console.error('Failed to advance to next question:', err);
+              setPendingNextQuestion({
+                nextQuestion: result.next_question,
+                progress: result.progress,
+                msg
+              });
+            }
+          }, 1500);
         }
+      } else {
+        console.error('Answer submission returned success=false:', result);
+        const currentQ = session.current_question?.question || 'Could you try that again?';
+        setTimeout(() => {
+          setConversationHistory(prev => [...prev, {
+            role: 'interviewer',
+            message: `Let me repeat the question.\n\n${currentQ}`,
+            timestamp: new Date()
+          }]);
+          setShowingResponse(false);
+        }, 1000);
       }
-    } catch { setError('Failed to submit answer'); }
+    } catch (err) {
+      console.error('Answer submission error:', err);
+      const currentQ = session?.current_question?.question || 'Could you try that again?';
+      setTimeout(() => {
+        setConversationHistory(prev => [...prev, {
+          role: 'interviewer',
+          message: `Let me repeat the question.\n\n${currentQ}`,
+          timestamp: new Date()
+        }]);
+        setShowingResponse(false);
+      }, 1000);
+    }
     finally { setIsLoading(false); }
   };
 
-  const handleVoiceAnswerSubmit = async (answerText: string) => {
+  const handleNextQuestion = async () => {
+    if (!session) return;
+    if (pendingNextQuestion && pendingNextQuestion.nextQuestion === null) {
+      setViewMode('summary');
+      setCurrentEvaluation(null);
+      setPendingNextQuestion(null);
+      try {
+        const token = await getAuthToken();
+        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        await fetch(`${API_BASE_URL}/api/session/${session.session_id}/summary`, { method: 'GET', headers });
+      } catch { /* ignore */ }
+    } else if (pendingNextQuestion) {
+      setConversationHistory(prev => [...prev, { role: 'interviewer', message: pendingNextQuestion.msg, timestamp: new Date() }]);
+      setSession({
+        ...session,
+        current_question: pendingNextQuestion.nextQuestion,
+        progress: pendingNextQuestion.progress
+      });
+      setPendingNextQuestion(null);
+      setCurrentEvaluation(null);
+      setShowingResponse(false);
+    }
+  };
+
+  const handleVoiceAnswerSubmit = async (answerText: string, videoEngagement: number, voiceMetrics?: any, cameraMetrics?: any) => {
     if (!session) return;
     recordAnswer(answerText, false);
     setConversationHistory(prev => [...prev, { role: 'candidate', message: answerText, timestamp: new Date() }]);
-    await handleAnswerSubmission(answerText);
+    await handleAnswerSubmission(answerText, videoEngagement, voiceMetrics, cameraMetrics);
   };
 
   const handleVoiceSkip = async () => { await handleSkipQuestion(); };
@@ -206,7 +308,7 @@ const PracticeTestsMain: React.FC = () => {
       const token = await getAuthToken();
       const headers: HeadersInit = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, { method: 'GET', headers });
+      await fetch(`${API_BASE_URL}/api/session/${session.session_id}/summary`, { method: 'GET', headers });
     } catch { /* ignore */ }
     setViewMode('summary');
   };
@@ -214,10 +316,12 @@ const PracticeTestsMain: React.FC = () => {
   const handleSkipQuestion = async () => {
     if (!session) return;
     recordAnswer('', true);
+    setCurrentEvaluation(null);
+    setPendingNextQuestion(null);
     setConversationHistory(prev => [...prev, { role: 'candidate', message: '[Question skipped]', timestamp: new Date() }]);
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/session/skip', {
+      const res = await fetch(`${API_BASE_URL}/api/session/skip`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: session.session_id }),
       });
@@ -229,7 +333,7 @@ const PracticeTestsMain: React.FC = () => {
             const token = await getAuthToken();
             const headers: HeadersInit = { 'Content-Type': 'application/json' };
             if (token) headers['Authorization'] = `Bearer ${token}`;
-            await fetch(`http://localhost:8000/api/session/${session.session_id}/summary`, { method: 'GET', headers });
+            await fetch(`${API_BASE_URL}/api/session/${session.session_id}/summary`, { method: 'GET', headers });
           } catch { /* ignore */ }
           setTimeout(() => setViewMode('summary'), 1000);
         } else {
@@ -263,7 +367,7 @@ const PracticeTestsMain: React.FC = () => {
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
       if (selectedResumeId) {
-        const resumeRes = await fetch('http://localhost:8000/api/db/resumes', { headers: { ...headers } });
+        const resumeRes = await fetch(`${API_BASE_URL}/api/db/resumes`, { headers: { ...headers } });
         const resumeData = await resumeRes.json();
         const fullResume = resumeData.resumes?.find((r: any) => r.id === selectedResumeId);
         if (fullResume?.parsed_json && Object.keys(fullResume.parsed_json).length > 0) {
@@ -277,7 +381,7 @@ const PracticeTestsMain: React.FC = () => {
       } else if (selectedFile) {
         const formData = new FormData();
         formData.append('file', selectedFile);
-        const res = await fetch('http://localhost:8000/api/resume/parse', { method: 'POST', headers, body: formData });
+        const res = await fetch(`${API_BASE_URL}/api/resume/parse`, { method: 'POST', headers, body: formData });
         const result = await res.json();
         if (result.success) {
           setParsedData(result.data);
@@ -307,7 +411,7 @@ const PracticeTestsMain: React.FC = () => {
       const token = await getAuthToken();
       const authHeader: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) authHeader['Authorization'] = `Bearer ${token}`;
-      const res = await fetch('http://localhost:8000/api/session/create-conversational', {
+      const res = await fetch(`${API_BASE_URL}/api/session/create-conversational`, {
         method: 'POST', headers: authHeader,
         body: JSON.stringify({
           user_id: (await supabase.auth.getUser()).data.user?.id || 'anon',
@@ -322,6 +426,8 @@ const PracticeTestsMain: React.FC = () => {
         setSession({ session_id: result.session_id, current_question: openingQ, progress: { current: 1, total: result.total_questions } });
         setInterviewAnswers([]);
         setAnswerEvaluations(new Map());
+        setCurrentEvaluation(null);
+        setPendingNextQuestion(null);
         setConversationHistory([{ role: 'interviewer', message: openingQ.question, timestamp: new Date() }]);
         setViewMode('interview');
       } else {
@@ -346,6 +452,8 @@ const PracticeTestsMain: React.FC = () => {
     setShowingResponse(false);
     setJobContext({ target_role: '', experience_level: '', interview_type: '' });
     setError('');
+    setCurrentEvaluation(null);
+    setPendingNextQuestion(null);
   };
 
   const steps = ['Select Resume', 'Interview Setup', 'AI Interview', 'Summary'];
@@ -645,6 +753,8 @@ const PracticeTestsMain: React.FC = () => {
             onSkip={handleVoiceSkip}
             onEndInterview={handleEndInterviewEarly}
             isLoading={isLoading}
+            currentEvaluation={currentEvaluation}
+            onNextQuestion={pendingNextQuestion ? handleNextQuestion : undefined}
           />
         </div>
       )}
@@ -670,27 +780,52 @@ const PracticeTestsMain: React.FC = () => {
               <div className={labStyles.summaryAnswers}>
                 <p className={labStyles.summaryAnswersTitle}>Session Summary</p>
                 {interviewAnswers.map((ans: InterviewAnswer, idx: number) => {
-                  const ev = answerEvaluations.get(idx);
+                  const ev: Evaluation | undefined = answerEvaluations.get(idx);
+                  const confColor = ev?.score_confidence === 'high' ? '#16a34a' : ev?.score_confidence === 'low' ? '#dc2626' : '#d97706';
+                  const isFallback = ev?.metadata?.fallback === true;
                   return (
                     <div key={idx} className={`${labStyles.summaryCard} ${ans.isSkipped ? labStyles.summaryCardSkipped : ''}`}>
                       <div className={labStyles.summaryCardTop}>
                         <span className={labStyles.qNum}>Q{ans.questionNumber}</span>
                         <span className={labStyles.qCat}>{ans.category}</span>
                         <span className={labStyles.qDiff}>{ans.difficulty}</span>
-                        {ev && !ans.isSkipped && (
+                        {ev && !ans.isSkipped && !isFallback && (
                           <span className={labStyles.qScore} style={{ color: ev.average_score >= 7 ? '#16a34a' : ev.average_score >= 5 ? '#d97706' : '#dc2626' }}>
                             ⭐ {ev.average_score?.toFixed(1)}/10
+                          </span>
+                        )}
+                        {ev?.score_confidence && !ans.isSkipped && !isFallback && (
+                          <span style={{ fontSize: '0.7rem', padding: '2px 7px', borderRadius: 99, background: `${confColor}18`, color: confColor, fontWeight: 600, marginLeft: 4 }}>
+                            {ev.score_confidence === 'high' ? '✓ High' : ev.score_confidence === 'low' ? '⚠ Low' : '~ Med'} confidence
+                          </span>
+                        )}
+                        {isFallback && !ans.isSkipped && (
+                          <span style={{ fontSize: '0.7rem', padding: '2px 7px', borderRadius: 99, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>
+                            ⚠ Score unavailable
                           </span>
                         )}
                         {ans.isSkipped && <span className={labStyles.skippedTag}>Skipped</span>}
                       </div>
                       <p className={labStyles.summaryQText}>{ans.questionText}</p>
                       {!ans.isSkipped && <p className={labStyles.summaryAText}>{ans.answerText || <em>No answer</em>}</p>}
-                      {ev && !ans.isSkipped && (
-                        <div className={labStyles.evalBox}>
-                          <p className={labStyles.evalFeedback}>{ev.feedback}</p>
-                          {ev.strengths?.length > 0 && <p className={labStyles.evalStrengths}>✨ {ev.strengths.slice(0, 2).join(', ')}</p>}
-                          {ev.weak_areas?.length > 0 && <p className={labStyles.evalWeak}>📈 Focus: {ev.weak_areas.join(', ')}</p>}
+
+                      {ev && !ans.isSkipped && !isFallback && (
+                        <div style={{ marginTop: '10px' }}>
+                          <EvaluationBreakdown
+                            score={ev.average_score}
+                            reasoning={ev.feedback}
+                            strengths={ev.strengths || []}
+                            gaps={ev.weak_areas || ev.weaknesses || []}
+                            llm_used={ev.metadata?.fallback !== true}
+                            dataset_match_type={ev.metadata?.strong_match ? 'strong_match' : 'no_match'}
+                            difficulty={(ev.difficulty as 'easy' | 'medium' | 'hard') || 'medium'}
+                          />
+                        </div>
+                      )}
+
+                      {isFallback && !ans.isSkipped && (
+                        <div className={labStyles.evalBox} style={{ background: '#fffbeb', borderLeft: '3px solid #f59e0b' }}>
+                          <p style={{ color: '#92400e', fontSize: '0.83rem', margin: 0 }}>{ev?.feedback || 'Evaluation was unavailable for this answer. Your response was recorded.'}</p>
                         </div>
                       )}
                     </div>
@@ -698,6 +833,7 @@ const PracticeTestsMain: React.FC = () => {
                 })}
               </div>
             )}
+
 
             <button className={labStyles.primaryBtn} onClick={resetAll} style={{ marginTop: '1.5rem' }}>
               Start New Interview

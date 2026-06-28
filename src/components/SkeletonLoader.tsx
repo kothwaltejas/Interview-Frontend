@@ -18,7 +18,7 @@ export const SkeletonBlock: React.FC<{
 export const StatCardSkeleton: React.FC = () => (
   <div className={styles.statCardSkeleton}>
     <div className={styles.statCardHeader}>
-      <SkeletonBlock width="48px" height="48px" borderRadius="12px" />
+      <SkeletonBlock width="48px" height="48px" borderRadius="8px" />
       <SkeletonBlock width="120px" height="0.9rem" />
     </div>
     <SkeletonBlock width="80px" height="2rem" borderRadius="8px" />
@@ -61,7 +61,7 @@ export const ResumeSkeleton: React.FC = () => (
     </div>
     {/* Preview placeholder */}
     <div className={styles.skeletonPreview}>
-      <SkeletonBlock width="100%" height="500px" borderRadius="12px" />
+      <SkeletonBlock width="100%" height="500px" borderRadius="8px" />
     </div>
   </div>
 );
@@ -84,8 +84,8 @@ export const DashboardHomeSkeleton: React.FC = () => (
     </div>
     {/* Charts */}
     <div className={styles.chartsGrid}>
-      <SkeletonBlock width="100%" height="260px" borderRadius="12px" />
-      <SkeletonBlock width="100%" height="260px" borderRadius="12px" />
+      <SkeletonBlock width="100%" height="260px" borderRadius="8px" />
+      <SkeletonBlock width="100%" height="260px" borderRadius="8px" />
     </div>
   </div>
 );
@@ -104,13 +104,13 @@ export const InterviewsSkeleton: React.FC = () => (
       {[1, 2, 3].map(i => (
         <div key={i} className={styles.interviewRowSkeleton}>
           <div className={styles.interviewRowLeft}>
-            <SkeletonBlock width="44px" height="44px" borderRadius="10px" />
+            <SkeletonBlock width="44px" height="44px" borderRadius="8px" />
             <div>
               <SkeletonBlock width="180px" height="1rem" />
               <SkeletonBlock width="120px" height="0.8rem" />
             </div>
           </div>
-          <SkeletonBlock width="80px" height="1.75rem" borderRadius="20px" />
+          <SkeletonBlock width="80px" height="1.75rem" borderRadius="8px" />
         </div>
       ))}
     </div>
@@ -152,7 +152,7 @@ export const PracticeTestsSkeleton: React.FC = () => (
         <SkeletonBlock width="150px" height="1.125rem" />
       </div>
       <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <SkeletonBlock width="100%" height="200px" borderRadius="12px" />
+        <SkeletonBlock width="100%" height="200px" borderRadius="8px" />
       </div>
     </div>
   </div>

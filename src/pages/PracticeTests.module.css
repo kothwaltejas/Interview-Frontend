@@ -39,7 +39,7 @@
 /* ─── Error banner ─── */
 .errorBanner {
   display: flex; align-items: center; gap: .6rem;
-  padding: .875rem 1.25rem; border-radius: 10px;
+  padding: .875rem 1.25rem; border-radius: 6px;
   background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
   font-size: .875rem; font-weight: 500; margin-bottom: 1.25rem;
 }
@@ -55,7 +55,7 @@
 /* ─── Primary button ─── */
 .primaryBtn {
   display: inline-flex; align-items: center; gap: .5rem;
-  padding: .875rem 2rem; border-radius: 10px; border: none;
+  padding: .875rem 2rem; border-radius: 6px; border: none;
   background: linear-gradient(135deg, #2563EB, #1d4ed8);
   color: white; font-size: .95rem; font-weight: 600;
   cursor: pointer; transition: all .2s;
@@ -66,7 +66,7 @@
 
 /* ─── Back button ─── */
 .backBtn {
-  background: none; border: 1px solid #e2e8f0; border-radius: 7px;
+  background: none; border: 1px solid #e2e8f0; border-radius: 4px;
   padding: .4rem .875rem; color: #64748b; font-size: .82rem; font-weight: 500;
   cursor: pointer; transition: all .18s;
 }
@@ -99,7 +99,7 @@
 
 .resumeCard {
   display: flex; align-items: center; gap: .875rem;
-  padding: .875rem 1rem; border-radius: 12px;
+  padding: .875rem 1rem; border-radius: 8px;
   border: 2px solid #e2e8f0; background: #f8fafc;
   cursor: pointer; text-align: left; transition: all .18s; width: 100%;
 }
@@ -107,7 +107,7 @@
 .resumeCardSelected { border-color: #2563EB; background: #eff6ff; }
 
 .resumeCardIcon {
-  width: 42px; height: 42px; border-radius: 10px;
+  width: 42px; height: 42px; border-radius: 6px;
   background: #dbeafe; color: #1d4ed8;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
@@ -139,7 +139,7 @@
 }
 .resumeSkeletons { display: flex; flex-direction: column; gap: .625rem; margin-bottom: 1.5rem; }
 .resumeSkeleton {
-  height: 68px; border-radius: 12px;
+  height: 68px; border-radius: 8px;
   background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
   background-size: 400px 100%;
   animation: shimmer 1.4s infinite linear;
@@ -149,7 +149,7 @@
 .uploadZone { margin-bottom: 1.25rem; }
 .uploadCard {
   display: flex; align-items: center; gap: .875rem;
-  padding: 1rem 1.25rem; border-radius: 12px; cursor: pointer;
+  padding: 1rem 1.25rem; border-radius: 8px; cursor: pointer;
   border: 2px dashed #cbd5e1; background: #f8fafc;
   transition: all .18s; width: 100%;
 }
@@ -157,7 +157,7 @@
 .uploadCardSelected { border-color: #2563EB !important; border-style: solid; background: #eff6ff; }
 
 .uploadIcon {
-  width: 48px; height: 48px; border-radius: 10px;
+  width: 48px; height: 48px; border-radius: 6px;
   background: #f1f5f9; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .uploadCardSelected .uploadIcon { background: #dbeafe; }
@@ -227,7 +227,7 @@
 /* Voice info card */
 .voiceInfoCard {
   background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
-  border: 1.5px solid #93c5fd; border-radius: 14px; padding: 1.25rem;
+  border: 1.5px solid #93c5fd; border-radius: 8px; padding: 1.25rem;
 }
 .voiceInfoHeader { display: flex; align-items: center; gap: .875rem; margin-bottom: 1rem; }
 .voiceInfoIcon { font-size: 1.75rem; line-height: 1; }
@@ -261,7 +261,7 @@
   color: #64748b; margin: 0 0 .875rem;
 }
 .summaryCard {
-  border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 1rem;
+  border: 1.5px solid #e2e8f0; border-radius: 6px; padding: 1rem;
   background: #f8fafc; margin-bottom: .75rem;
 }
 .summaryCardSkipped { border-color: #fde68a; background: #fffbeb; }
@@ -327,7 +327,7 @@
 .roleCardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .625rem; }
 .roleCard2 {
   display: flex; flex-direction: column; align-items: center; gap: .5rem;
-  padding: .875rem .75rem; border-radius: 10px;
+  padding: .875rem .75rem; border-radius: 6px;
   border: 1.5px solid #e2e8f0; background: white;
   cursor: pointer; transition: all .15s;
   font-family: inherit; text-align: center; position: relative;
@@ -335,7 +335,7 @@
 .roleCard2:hover { border-color: #93c5fd; background: #eff6ff; transform: translateY(-1px); }
 .roleCard2Active { border-color: #2563EB; background: #eff6ff; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
 .roleCard2Icon {
-  width: 36px; height: 36px; border-radius: 8px; background: #f1f5f9;
+  width: 36px; height: 36px; border-radius: 6px; background: #f1f5f9;
   display: flex; align-items: center; justify-content: center; color: #64748b;
 }
 .roleCard2Active .roleCard2Icon { background: #dbeafe; color: #2563EB; }
@@ -349,7 +349,7 @@
 .expRow { display: flex; gap: .75rem; flex-wrap: wrap; }
 .expBtn {
   flex: 1; min-width: 130px; padding: .875rem 1rem;
-  border: 1.5px solid #e2e8f0; border-radius: 10px; background: white;
+  border: 1.5px solid #e2e8f0; border-radius: 6px; background: white;
   cursor: pointer; transition: all .15s; font-family: inherit;
   display: flex; flex-direction: column; gap: .5rem; align-items: flex-start;
   font-size: .85rem; font-weight: 600; color: #374151;
@@ -363,13 +363,13 @@
 .typeCardRow { display: flex; gap: .875rem; flex-wrap: wrap; }
 .typeCard {
   flex: 1; min-width: 160px; padding: 1.25rem 1rem;
-  border: 1.5px solid #e2e8f0; border-radius: 12px; background: white;
+  border: 1.5px solid #e2e8f0; border-radius: 8px; background: white;
   cursor: pointer; transition: all .18s; text-align: left;
   display: flex; flex-direction: column; gap: .5rem; font-family: inherit;
 }
 .typeCard:hover { border-color: #c7d2fe; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.06); }
 .typeCardActive { box-shadow: 0 4px 14px rgba(0,0,0,.08); }
-.typeCardIcon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.typeCardIcon { width: 44px; height: 44px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
 .typeCardLabel { font-size: .9rem; font-weight: 700; }
 .typeCardDesc { font-size: .77rem; color: #94a3b8; line-height: 1.4; font-weight: 400; }
 .wizardFooter {
@@ -381,7 +381,7 @@
 .previewTag { background: #dbeafe; color: #1e40af; border-radius: 999px; padding: .25rem .75rem; font-size: .78rem; font-weight: 600; }
 .startBtn {
   display: inline-flex; align-items: center; gap: .5rem;
-  padding: .875rem 2rem; border-radius: 12px; border: none;
+  padding: .875rem 2rem; border-radius: 6px; border: none;
   background: linear-gradient(135deg, #2563EB, #1d4ed8);
   color: white; font-size: .95rem; font-weight: 700;
   cursor: pointer; transition: all .2s; white-space: nowrap;

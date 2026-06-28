@@ -260,7 +260,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, currentPage
               <div key={alert.id} style={{
                 display: 'flex', alignItems: 'center', gap: '.875rem',
                 background: 'linear-gradient(90deg,#fef3c7,#fffbeb)',
-                border: '1.5px solid #fcd34d', borderRadius: '10px',
+                border: '1.5px solid #fcd34d', borderRadius: '6px',
                 padding: '.625rem 1.125rem',
               }}>
                 <span style={{ fontSize: '1.1rem' }}>⏰</span>

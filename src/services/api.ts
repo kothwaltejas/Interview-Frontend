@@ -1,7 +1,7 @@
-import { supabase } from '../lib/supabase';
+import { authService, supabase } from '../lib/supabase';
 
 // Base API configuration
-const API_BASE_URL = 'http://localhost:8000'; // Backend FastAPI server
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 // Types for API responses
 export interface UserStatistics {
@@ -44,15 +44,15 @@ export interface DashboardData {
 
 // Get authenticated headers with JWT token
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  if (!session?.access_token) {
+  const token = await authService.getValidAccessToken();
+
+  if (!token) {
     throw new Error('Authentication required');
   }
 
   return {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${session.access_token}`
+    'Authorization': `Bearer ${token}`
   };
 }
 
@@ -287,4 +287,14 @@ export class ApiService {
       return null;
     }
   }
+}
+
+export async function getSessionEvaluations(session_id: string) {
+  const { data, error } = await supabase
+    .from('answer_evaluations')
+    .select('question_index, question_text, score, reasoning, strengths, gaps, llm_used, difficulty, evaluation_metadata')
+    .eq('session_id', session_id)
+    .order('question_index', { ascending: true });
+  if (error) throw error;
+  return data;
 }
