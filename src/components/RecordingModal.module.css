@@ -28,7 +28,7 @@
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(226, 232, 240, 0.6);
-  border-radius: 20px;
+  border-radius: 8px;
   max-width: 550px;
   width: 90%;
   max-height: 75vh;
@@ -136,7 +136,7 @@
   color: white;
   border: none;
   padding: 0.625rem 1.5rem;
-  border-radius: 10px;
+  border-radius: 6px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, Session } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -8,6 +8,30 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+const JWT_REFRESH_SKEW_SECONDS = 60;
+
+function decodeJwtPayload(token: string): Record<string, any> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+function isTokenExpired(token: string, skewSeconds = JWT_REFRESH_SKEW_SECONDS): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload?.exp) return false;
+  return payload.exp * 1000 <= Date.now() + (skewSeconds * 1000);
+}
 
 // Auth helper functions
 export const authService = {
@@ -64,11 +88,12 @@ export const authService = {
         
         // Create user profile in database
         if (token) {
-          const profileResponse = await fetch('http://localhost:8000/api/db/profile', {
+          const profileResponse = await fetch(`${API_BASE_URL}/api/db/profile`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
+              'Authorization': `Bearer ${token}`,
+              'ngrok-skip-browser-warning': 'true',
             },
             body: JSON.stringify({
               full_name: userData.fullName,
@@ -91,11 +116,12 @@ export const authService = {
           
           // Save resume record to database
           if (token) {
-            const resumeResponse = await fetch('http://localhost:8000/api/db/resume', {
+            const resumeResponse = await fetch(`${API_BASE_URL}/api/db/resume`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'ngrok-skip-browser-warning': 'true',
               },
               body: JSON.stringify({
                 file_name: userData.resume.name,
@@ -149,6 +175,38 @@ export const authService = {
   async signOut() {
     const { error } = await supabase.auth.signOut();
     return { error };
+  },
+
+  isTokenExpired(token: string, skewSeconds = JWT_REFRESH_SKEW_SECONDS) {
+    return isTokenExpired(token, skewSeconds);
+  },
+
+  async getFreshSession(): Promise<{ session: Session | null; error: string | null }> {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      return { session: null, error: 'Authentication required' };
+    }
+
+    if (!this.isTokenExpired(session.access_token)) {
+      return { session, error: null };
+    }
+
+    const { data, error } = await supabase.auth.refreshSession();
+    if (!error && data.session?.access_token && !this.isTokenExpired(data.session.access_token)) {
+      return { session: data.session, error: null };
+    }
+
+    await supabase.auth.signOut();
+    return { session: null, error: 'Your session expired. Please sign in again.' };
+  },
+
+  async getValidAccessToken(): Promise<string> {
+    const { session, error } = await this.getFreshSession();
+    if (!session?.access_token) {
+      throw new Error(error || 'Authentication required');
+    }
+    return session.access_token;
   },
 
   // Get current user

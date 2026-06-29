@@ -192,7 +192,12 @@ const LandingPage: React.FC = () => {
           <div className={styles.contentBlocks}>
             {/* Video/Audio Block */}
             <div className={styles.videoBlock}>
-              <h2>📹 Camera Preview</h2>
+              <h2>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4zM16 16H4V8h12v8z"/>
+                </svg>
+                Camera Preview
+              </h2>
               {isCheckingPermissions ? (
                 <div className={styles.loadingContainer}>
                   <div className={styles.spinner}></div>
@@ -200,7 +205,11 @@ const LandingPage: React.FC = () => {
                 </div>
               ) : error ? (
                 <div className={styles.errorContainer}>
-                  <div className={styles.errorIcon}>⚠️</div>
+                  <div className={styles.errorIcon}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                    </svg>
+                  </div>
                   <h3>Oops! Something went wrong</h3>
                   <p>{error}</p>
                   <button className={styles.retryBtn} onClick={requestPermissions}>
@@ -221,7 +230,12 @@ const LandingPage: React.FC = () => {
                   
                   {/* Audio Recording Section */}
                   <div className={styles.audioSection}>
-                    <h3>🎤 Microphone Test</h3>
+                    <h3>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+                      </svg>
+                      Microphone Test
+                    </h3>
                     
                     <div className={styles.sentenceContainer}>
                       <div className={styles.sentenceLabel}>Read this sentence aloud:</div>
@@ -234,7 +248,21 @@ const LandingPage: React.FC = () => {
                         onClick={isRecording ? stopAudioRecording : startAudioRecording}
                         disabled={!hasPermissions}
                       >
-                        {isRecording ? '🔴 Stop Recording' : '🎙️ Start Mic Test'}
+                        {isRecording ? (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                              <circle cx="12" cy="12" r="10"/>
+                            </svg>
+                            Stop Recording
+                          </>
+                        ) : (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+                            </svg>
+                            Start Mic Test
+                          </>
+                        )}
                       </button>
                       
                       {audioUrl && (
@@ -242,7 +270,10 @@ const LandingPage: React.FC = () => {
                           className={styles.replayBtn}
                           onClick={playRecordedAudio}
                         >
-                          ▶️ Replay Audio
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 5v14l11-7z"/>
+                          </svg>
+                          Replay Audio
                         </button>
                       )}
                       
@@ -250,7 +281,10 @@ const LandingPage: React.FC = () => {
                         className={styles.replayBtn}
                         onClick={generateNewSentence}
                       >
-                        🔄 New Sentence
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                        </svg>
+                        New Sentence
                       </button>
                     </div>
                   </div>
@@ -260,7 +294,12 @@ const LandingPage: React.FC = () => {
 
             {/* Instructions Block */}
             <div className={styles.instructionsBlock}>
-              <h2>📋 Test Instructions</h2>
+              <h2>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M14 2H6C4.9 2 4 2.9 4 4v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm2-10h8v2H8v-2zm0 3h8v2H8v-2zm0 3h5v2H8v-2z"/>
+                </svg>
+                Test Instructions
+              </h2>
               <ul className={styles.instructionsList}>
                 <li>Allow camera and microphone access when prompted by your browser</li>
                 <li>Check your camera preview to ensure proper positioning and lighting</li>
